@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Seller Offer Calculator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a deal desk. Tool tabs on top; on wide screens inputs sit left, the live numbers stay pinned right; on phones a strip at the bottom keeps the key number in view. */
+:root{
+  --bg:#EEF2F0; --surface:#FFFFFF; --sunk:#F5F8F6; --ink:#15201C; --muted:#5A6A64; --line:#D3DCD8;
+  --accent:#1D6A51; --accent-soft:#DDEDE6; --on-accent:#FFFFFF;
+  --good:#1D6A51; --warn:#9A5800; --warn-soft:#F7EAD6; --bad:#B3261E; --bad-soft:#F8E1DF;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --body:"Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1412; --surface:#161E1B; --sunk:#111816; --ink:#E5ECE9; --muted:#93A39D; --line:#2A3632;
+  --accent:#62C79F; --accent-soft:#1D3229; --on-accent:#0B1612;
+  --good:#62C79F; --warn:#E3A75A; --warn-soft:#33281A; --bad:#F2857C; --bad-soft:#3A1F1D; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1412; --surface:#161E1B; --sunk:#111816; --ink:#E5ECE9; --muted:#93A39D; --line:#2A3632;
+  --accent:#62C79F; --accent-soft:#1D3229; --on-accent:#0B1612;
+  --good:#62C79F; --warn:#E3A75A; --warn-soft:#33281A; --bad:#F2857C; --bad-soft:#3A1F1D; color-scheme:dark}
+
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
+.wrap{max-width:1100px;margin:0 auto;padding-block:20px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+@media (min-width:820px){.wrap{padding-bottom:48px}}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+h1{font-size:1.65rem;font-weight:800;font-stretch:85%;letter-spacing:-.01em}
+h2{font-size:1.05rem;font-weight:700;font-stretch:90%}
+h3{font-size:.95rem;font-weight:700}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:16px}
+.top p{margin:4px 0 0;color:var(--muted);max-width:60ch}
+.num{font-variant-numeric:tabular-nums}
+
+/* tabs */
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:16px}
+.tab{flex:1;appearance:none;border:0;background:transparent;color:var(--muted);font:600 .95rem var(--body);padding:10px 8px;border-radius:9px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--on-accent)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--sunk);gap:2px}
+.seg button{appearance:none;border:0;background:transparent;color:var(--muted);font:600 .85rem var(--body);padding:6px 14px;border-radius:999px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* tool layout */
+.tool{display:grid;gap:16px}
+@media (min-width:820px){.tool.split{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}.tool.split .results{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:14px;min-width:0}
+.panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.fields .wide{grid-column:1/-1}
+@media (max-width:420px){.fields{grid-template-columns:minmax(0,1fr)}}
+.field{display:grid;gap:4px;min-width:0}
+.field label{font-size:.82rem;font-weight:600;color:var(--ink)}
+.field .hint{font-size:.76rem;color:var(--muted)}
+.box{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--sunk);min-width:0}
+.box:focus-within{border-color:var(--accent)}
+.box span{padding:0 10px;color:var(--muted);font-weight:600;font-size:.9rem}
+.box input,.box select{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);font:500 1rem var(--body);font-variant-numeric:tabular-nums;padding:10px;outline:none}
+.box span+input{padding-left:0}
+.box select{flex:0 0 auto;border-left:1px solid var(--line);font-size:.88rem;padding:10px 8px;cursor:pointer}
+.box input:focus-visible{outline:none}
+.group-label{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:4px 0 -4px}
+
+/* results */
+.results{display:grid;gap:14px;min-width:0}
+.hero{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:2px;min-width:0}
+.stat.key{background:var(--accent-soft);border-color:transparent}
+.stat .lbl{font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat .val{font-family:var(--display);font-weight:800;font-stretch:85%;font-size:1.7rem;font-variant-numeric:tabular-nums;line-height:1.1;overflow-wrap:anywhere}
+.stat.key .val{color:var(--accent)}
+.stat .sub{font-size:.78rem;color:var(--muted)}
+.ledger{margin:0;padding:0;list-style:none;font-variant-numeric:tabular-nums;font-size:.9rem}
+.ledger li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}
+.ledger li:last-child{border-bottom:0;font-weight:700}
+.ledger li span:first-child{color:var(--muted)}
+.ledger li:last-child span:first-child{color:var(--ink)}
+.note{font-size:.8rem;color:var(--muted);margin:0}
+.flag{font-size:.85rem;padding:8px 10px;border-radius:8px;margin:0}
+.flag.warn{background:var(--warn-soft);color:var(--warn)}
+.flag.bad{background:var(--bad-soft);color:var(--bad)}
+.pill{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--accent-soft);color:var(--good)}
+.pill.no{background:var(--warn-soft);color:var(--warn)}
+
+.tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (max-width:460px){.tiers{grid-template-columns:minmax(0,1fr)}}
+.tier{background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:4px;min-width:0}
+.tier.key{background:var(--accent-soft);border-color:transparent}
+.tier .val{font-family:var(--display);font-weight:800;font-stretch:85%;font-size:1.45rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.tier.key .val{color:var(--accent)}
+.tier .lbl{font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tier .sub{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* summary */
+.summary{display:grid;gap:8px}
+.summary textarea{width:100%;min-height:150px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--sunk);color:var(--ink);font:400 .9rem/1.5 var(--body);padding:10px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.btn{appearance:none;border:1px solid transparent;background:var(--accent);color:var(--on-accent);font:600 .9rem var(--body);padding:10px 16px;border-radius:8px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+.copied{font-size:.82rem;color:var(--good);font-weight:600}
+.check{display:flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted)}
+
+/* financing */
+.options{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.opt{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:14px;display:grid;gap:12px;min-width:0}
+.opt.off{opacity:.55}
+.opt .fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+.opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.badge{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--on-accent);font:800 .95rem var(--display)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.88rem}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;color:var(--muted);font-weight:500;white-space:normal;min-width:150px}
+thead th{background:var(--sunk);font-weight:700;color:var(--ink)}
+tbody tr:last-child td{border-bottom:0}
+tr.em td{font-weight:700;color:var(--ink)}
+tr.em td:first-child{color:var(--ink)}
+td.pos{color:var(--good)} td.neg{color:var(--bad)}
+
+/* phone strip */
+.strip{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-variant-numeric:tabular-nums}
+.strip b{font-family:var(--display);font-stretch:85%;font-size:1.3rem;color:var(--accent)}
+.strip small{color:var(--muted);font-size:.8rem}
+@media (min-width:820px){.strip{display:none}}
+@media (prefers-reduced-motion:no-preference){.tab,.seg button,.btn{transition:background-color .15s,color .15s}}
+
+/* comps */
+.search{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}
+.search .grow{flex:1 1 260px}
+.filters{display:flex;flex-wrap:wrap;gap:12px 20px}
+.flabel{font-size:.82rem;font-weight:600}
+.more summary{cursor:pointer;font-weight:600;font-size:.9rem;color:var(--accent)}
+.flag.info{background:var(--accent-soft);color:var(--ink)}
+.mapwrap{position:relative;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--sunk)}
+#c-map{height:62vh;min-height:320px;max-height:640px;width:100%}
+.mapbtn{position:absolute;z-index:500;top:10px;right:calc(10px + env(safe-area-inset-right,0px));appearance:none;border:1px solid rgba(0,0,0,.25);background:#fff;color:#15201C;font:600 .82rem var(--body);padding:7px 10px;border-radius:6px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.mapwrap.full{position:fixed;inset:0;z-index:1000;border-radius:0;border:0}
+.mapwrap.full #c-map{height:100%;max-height:none;min-height:0}
+.mapwrap.full .mapbtn{top:calc(10px + env(safe-area-inset-top,0px))}
+.mapwrap:fullscreen #c-map{height:100%;max-height:none}
+body.lock{overflow:hidden}
+.leaflet-container{font-family:var(--body)}
+.leaflet-popup-content{font-size:.85rem;line-height:1.4;margin:10px 12px}
+.leaflet-popup-content b{font-size:.92rem}
+.subj{display:grid;gap:10px}
+.subj .facts{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.subj .facts b{color:var(--ink);font-weight:600}
+.avgbar{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.clist{display:grid;gap:8px}
+.comp{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--sunk);cursor:pointer}
+.comp.on{border-color:var(--accent);background:var(--accent-soft)}
+.comp input{margin-top:3px;width:18px;height:18px;accent-color:var(--accent)}
+.comp .addr{font-weight:600;overflow-wrap:anywhere}
+.comp .sub{font-size:.8rem;color:var(--muted)}
+.comp .price{text-align:right;font-family:var(--display);font-weight:800;font-stretch:85%;font-size:1.2rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.comp .price small{display:block;font-family:var(--body);font-weight:500;font-size:.78rem;color:var(--muted);font-stretch:100%}
+.comp .meta{grid-column:2/4;font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.comp .buyer{grid-column:2/4;font-size:.82rem}
+.comp .buyer span{color:var(--muted)}
+.comp .acts{grid-column:2/4}
+.linkbtn{appearance:none;border:0;background:none;color:var(--accent);font:600 .8rem var(--body);padding:0;cursor:pointer;text-decoration:underline}
+.src{color:var(--accent)!important;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Seller Offer Calculator</h1>
+      <p>Comps from Florida public records, cash offers for homes and land, and owner-financing terms for homes. Your numbers stay on this device.</p>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Calculator">
+    <button class="tab" role="tab" id="tab-comps" aria-controls="view-comps" data-view="comps">Comps</button>
+    <button class="tab" role="tab" id="tab-cash" aria-controls="view-cash" data-view="cash">Cash offer</button>
+    <button class="tab" role="tab" id="tab-fin" aria-controls="view-fin" data-view="fin">Owner financing</button>
+  </div>
+
+  <!-- ============ COMPS ============ -->
+  <section id="view-comps" role="tabpanel" aria-labelledby="tab-comps" hidden>
+    <div class="tool">
+      <div class="panel">
+        <form id="c-form" class="search" autocomplete="off">
+          <div class="field grow"><label for="c-addr">Property address</label><div class="box"><input id="c-addr" type="text" placeholder="1234 Palm Ave, Orlando, FL"></div></div>
+          <button class="btn" type="submit" id="c-go">Find comps</button>
+        </form>
+        <p class="note">For land with no street address, tap the spot on the map instead.</p>
+        <p class="flag" id="c-status" hidden></p>
+        <div class="filters">
+          <div class="field"><span class="flabel">Radius</span>
+            <div class="seg" role="group" aria-label="Radius">
+              <button type="button" data-radius="0.25">0.25 mi</button><button type="button" data-radius="0.5">0.5 mi</button><button type="button" data-radius="1">1 mi</button><button type="button" data-radius="2">2 mi</button>
+            </div></div>
+          <div class="field"><span class="flabel">Sold within</span>
+            <div class="seg" role="group" aria-label="Sold within">
+              <button type="button" data-months="3">3 mo</button><button type="button" data-months="6">6 mo</button><button type="button" data-months="12">12 mo</button><button type="button" data-months="24">24 mo</button>
+            </div></div>
+        </div>
+        <details class="more" id="c-more">
+          <summary>Property filters</summary>
+          <div class="fields" style="margin-top:12px">
+            <div class="field wide"><label for="c-type">Property type</label><div class="box"><select id="c-type" style="flex:1;border-left:0">
+              <option value="same">Same as the subject property</option><option value="sfr">Single family</option><option value="condo">Condo or co-op</option><option value="mobile">Mobile home</option><option value="multi">Multi-family</option><option value="land">Vacant land</option><option value="any">All types</option></select></div></div>
+            <div class="field"><label for="c-sqmin">Living area from</label><div class="box"><input id="c-sqmin" inputmode="decimal" placeholder="Any"><span>sqft</span></div></div>
+            <div class="field"><label for="c-sqmax">Living area to</label><div class="box"><input id="c-sqmax" inputmode="decimal" placeholder="Any"><span>sqft</span></div></div>
+            <div class="field"><label for="c-yrmin">Built from</label><div class="box"><input id="c-yrmin" inputmode="numeric" placeholder="Any"></div></div>
+            <div class="field"><label for="c-yrmax">Built to</label><div class="box"><input id="c-yrmax" inputmode="numeric" placeholder="Any"></div></div>
+            <div class="field"><label for="c-acmin">Lot from</label><div class="box"><input id="c-acmin" inputmode="decimal" placeholder="Any"><span>ac</span></div></div>
+            <div class="field"><label for="c-acmax">Lot to</label><div class="box"><input id="c-acmax" inputmode="decimal" placeholder="Any"><span>ac</span></div></div>
+            <div class="field"><label for="c-minp">Lowest sale price</label><div class="box"><span>$</span><input id="c-minp" inputmode="decimal"></div></div>
+            <div class="field"><label for="c-qual">Sale types</label><div class="box"><select id="c-qual" style="flex:1;border-left:0"><option value="arms">Arm's-length sales only</option><option value="all">All recorded sales</option></select></div></div>
+          </div>
+          <p class="note" style="margin-top:10px">Arm's-length sales are the ones the county marked as normal market sales. "All recorded sales" adds foreclosures, tax deeds, family transfers and similar.</p>
+        </details>
+      </div>
+
+      <div class="panel" id="c-subject" hidden></div>
+
+      <div class="mapwrap" id="c-mapwrap">
+        <div id="c-map" aria-label="Map of the property and nearby sales"></div>
+        <button type="button" class="mapbtn" id="c-full" aria-label="Full screen map">Full screen</button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2 id="c-count">Recent sales</h2>
+          <div class="row"><label class="check" for="c-sort">Sort</label><div class="box"><select id="c-sort" style="border-left:0"><option value="dist">Closest</option><option value="new">Newest</option><option value="price">Highest price</option><option value="ppsf">Highest $/sqft</option></select></div></div>
+        </div>
+        <div class="avgbar" id="c-avg" hidden></div>
+        <div id="c-list" class="clist"><p class="note">Enter an address to see nearby sales.</p></div>
+      </div>
+      <p class="note" id="c-data">Sales and buyers come from the Florida Department of Revenue tax roll, published through the Florida Geographic Information Office. The buyer shown is the current owner of record, which is usually the buyer in the most recent sale. Sale dates are by month.</p>
+    </div>
+  </section>
+
+  <!-- ============ CASH ============ -->
+  <section id="view-cash" role="tabpanel" aria-labelledby="tab-cash">
+    <div class="row" style="margin-bottom:14px">
+      <div class="seg" role="group" aria-label="Property type">
+        <button type="button" data-cash="home" id="seg-home">Home</button>
+        <button type="button" data-cash="land" id="seg-land">Land</button>
+      </div>
+    </div>
+
+    <!-- HOME -->
+    <div id="cash-home" class="tool split">
+      <div class="panel">
+        <div class="panel-head"><h2>Home deal</h2><button class="btn ghost" type="button" data-reset="h">Reset</button></div>
+        <div class="fields">
+          <div class="field wide"><label for="h-prop">Property (optional)</label><div class="box"><input id="h-prop" type="text" placeholder="123 Main St"></div></div>
+          <div class="field"><label for="h-arv">After-repair value (ARV)</label><div class="box"><span>$</span><input id="h-arv" inputmode="decimal"></div><span class="hint src" id="h-arv-src" hidden></span></div>
+          <div class="field"><label for="h-rep">Estimated repairs</label><div class="box"><span>$</span><input id="h-rep" inputmode="decimal"></div></div>
+          <div class="field"><label for="h-pct">Target % of ARV</label><div class="box"><input id="h-pct" inputmode="decimal"><span>%</span></div><span class="hint">The 70% rule is the usual starting point.</span></div>
+          <div class="field"><label for="h-fee">Your fee or profit</label><div class="box"><span>$</span><input id="h-fee" inputmode="decimal"></div><span class="hint">Assignment fee or the profit you want.</span></div>
+          <div class="field"><label for="h-close">Closing costs</label><div class="box"><span>$</span><input id="h-close" inputmode="decimal"></div></div>
+          <div class="field"><label for="h-holdm">Holding cost per month</label><div class="box"><span>$</span><input id="h-holdm" inputmode="decimal"></div><span class="hint">Taxes, insurance, utilities, loan cost.</span></div>
+          <div class="field"><label for="h-holdn">Months held</label><div class="box"><input id="h-holdn" inputmode="decimal"><span>mo</span></div></div>
+          <div class="field"><label for="h-room">Open this far below MAO</label><div class="box"><input id="h-room" inputmode="decimal"><span>%</span></div><span class="hint">Room to negotiate up.</span></div>
+        </div>
+        <p class="note">Formula: ARV × target % − repairs − your fee − closing − holding = MAO. The 70% rule usually already leaves room for an end buyer's costs, so only add closing and holding here if they're yours on top.</p>
+      </div>
+
+      <div class="results">
+        <div class="panel">
+          <div class="hero">
+            <div class="stat"><span class="lbl">Opening offer</span><span class="val" id="h-out-open">–</span><span class="sub">Rounded down to the nearest $500</span></div>
+            <div class="stat key"><span class="lbl">Walk-away (MAO)</span><span class="val" id="h-out-mao">–</span><span class="sub" id="h-out-pct">–</span></div>
+          </div>
+          <p class="flag bad" id="h-flag" hidden></p>
+          <ul class="ledger" id="h-ledger"></ul>
+        </div>
+        <div class="panel summary">
+          <div class="panel-head"><h3>Offer summary to send</h3>
+            <div class="seg" role="group" aria-label="Figure to present">
+              <button type="button" data-hpresent="open">Opening</button>
+              <button type="button" data-hpresent="mao">Walk-away</button>
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="h-showmath"> Mention the ARV and repair estimate</label>
+          <textarea id="h-sum" aria-label="Home offer summary"></textarea>
+          <div class="row"><button class="btn" type="button" data-copy="h-sum">Copy offer summary</button><span class="copied" aria-live="polite"></span></div>
+          <p class="note">You can edit the text before copying. Edits reset when a number changes.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- LAND -->
+    <div id="cash-land" class="tool split" hidden>
+      <div class="panel">
+        <div class="panel-head"><h2>Land deal</h2><button class="btn ghost" type="button" data-reset="l">Reset</button></div>
+        <div class="fields">
+          <div class="field wide"><label for="l-prop">Property or parcel (optional)</label><div class="box"><input id="l-prop" type="text" placeholder="APN 012-345-678"></div></div>
+          <div class="field wide"><span style="font-size:.82rem;font-weight:600">Market value from</span>
+            <div class="seg" role="group" aria-label="Market value from">
+              <button type="button" data-lmode="ppa">Comps per acre</button>
+              <button type="button" data-lmode="mv">Market value</button>
+            </div>
+          </div>
+          <div class="field"><label for="l-acres">Acres</label><div class="box"><input id="l-acres" inputmode="decimal"><span>ac</span></div></div>
+          <div class="field" id="l-ppa-wrap"><label for="l-ppa">Comps price per acre</label><div class="box"><span>$</span><input id="l-ppa" inputmode="decimal"></div><span class="hint src" id="l-ppa-src" hidden></span></div>
+          <div class="field" id="l-mv-wrap" hidden><label for="l-mv">Market value</label><div class="box"><span>$</span><input id="l-mv" inputmode="decimal"></div></div>
+          <p class="group-label wide">Offer as % of market value</p>
+          <div class="field"><label for="l-lo">Low</label><div class="box"><input id="l-lo" inputmode="decimal"><span>%</span></div></div>
+          <div class="field"><label for="l-tg">Target</label><div class="box"><input id="l-tg" inputmode="decimal"><span>%</span></div></div>
+          <div class="field"><label for="l-hi">High</label><div class="box"><input id="l-hi" inputmode="decimal"><span>%</span></div></div>
+          <div class="field"><label for="l-liens">Back taxes and liens</label><div class="box"><span>$</span><input id="l-liens" inputmode="decimal"></div><span class="hint">You pay these, so they come off the offer.</span></div>
+          <div class="field"><label for="l-close">Closing costs you pay</label><div class="box"><span>$</span><input id="l-close" inputmode="decimal"></div></div>
+          <div class="field"><label for="l-profit">Profit goal</label><div class="box"><span>$</span><input id="l-profit" inputmode="decimal"></div></div>
+        </div>
+        <p class="note">Formula: market value × % − back taxes and liens = offer, rounded down to the nearest $100. Profit = market value − offer − back taxes and liens − closing costs, before any resale costs.</p>
+      </div>
+
+      <div class="results">
+        <div class="panel">
+          <div class="panel-head"><h3>Offer range</h3><span class="note num" id="l-out-mv">–</span></div>
+          <div class="tiers" id="l-tiers"></div>
+          <p class="flag warn" id="l-flag" hidden></p>
+          <ul class="ledger" id="l-ledger"></ul>
+        </div>
+        <div class="panel summary">
+          <div class="panel-head"><h3>Offer summary to send</h3>
+            <div class="seg" role="group" aria-label="Figure to present">
+              <button type="button" data-lpresent="0">Low</button>
+              <button type="button" data-lpresent="1">Target</button>
+              <button type="button" data-lpresent="2">High</button>
+            </div>
+          </div>
+          <textarea id="l-sum" aria-label="Land offer summary"></textarea>
+          <div class="row"><button class="btn" type="button" data-copy="l-sum">Copy offer summary</button><span class="copied" aria-live="polite"></span></div>
+          <p class="note">You can edit the text before copying. Edits reset when a number changes.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FINANCING ============ -->
+  <section id="view-fin" role="tabpanel" aria-labelledby="tab-fin" hidden>
+    <div class="tool">
+      <div class="panel">
+        <div class="panel-head"><h2>The home</h2><button class="btn ghost" type="button" data-reset="f">Reset</button></div>
+        <div class="fields">
+          <div class="field wide"><label for="f-prop">Property (optional)</label><div class="box"><input id="f-prop" type="text" placeholder="123 Main St"></div></div>
+          <div class="field"><label for="f-price">Purchase price</label><div class="box"><span>$</span><input id="f-price" inputmode="decimal"></div><span class="hint">Seller's asking or agreed price.</span></div>
+          <div class="field"><label for="f-ti">Taxes and insurance per month</label><div class="box"><span>$</span><input id="f-ti" inputmode="decimal"></div><span class="hint">You pay these. Not paid to the seller.</span></div>
+          <div class="field"><label for="f-rent">Market rent per month</label><div class="box"><span>$</span><input id="f-rent" inputmode="decimal"></div><span class="hint">Leave blank to skip.</span></div>
+          <div class="field"><label for="f-resale">Resale value</label><div class="box"><span>$</span><input id="f-resale" inputmode="decimal"></div><span class="hint">Leave blank to skip.</span></div>
+        </div>
+      </div>
+
+      <div class="options" id="f-options"></div>
+
+      <div class="panel">
+        <h2>Side by side</h2>
+        <p class="flag warn" id="f-flag" hidden></p>
+        <div class="scroll"><table id="f-compare"></table></div>
+        <p class="note">Monthly payment to the seller is principal and interest. Rent minus payment is before repairs, vacancy and management.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Balance owed to the seller</h2>
+        <div class="scroll"><table id="f-amort"></table></div>
+        <p class="note">Balance at the end of each year, after that year's payments and before any balloon. "Paid" means the loan is paid off or the balloon is due.</p>
+      </div>
+
+      <div class="panel summary">
+        <h3>Terms summary to send</h3>
+        <textarea id="f-sum" aria-label="Owner financing summary" style="min-height:200px"></textarea>
+        <div class="row"><button class="btn" type="button" data-copy="f-sum">Copy terms summary</button><span class="copied" aria-live="polite"></span></div>
+        <p class="note">Lists each option you have turned on. You can edit the text before copying. Edits reset when a number changes.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="row" style="justify-content:flex-end;margin-top:18px"><button class="btn ghost" type="button" id="reset-all">Reset everything to defaults</button></div>
+</div>
+
+<div class="strip" id="strip" aria-hidden="true"><small id="strip-l"></small><b id="strip-v"></b></div>
+
+<script id="calc">
+/* ---------- pure math ---------- */
+function round2(x){return Math.round(x*100)/100}
+
+function homeCalc(i){
+  var base=i.arv*i.pct/100, holding=i.holdMonthly*i.holdMonths;
+  var mao=base-i.repairs-i.fee-i.closing-holding;
+  var opening=mao>0?Math.floor(mao*(1-i.room/100)/500)*500:0;
+  return {base:base,holding:holding,mao:mao,opening:Math.max(0,opening),pctOfArv:i.arv>0?mao/i.arv:0};
+}
+
+function landCalc(i){
+  var rows=i.pcts.map(function(p){
+    var offer=Math.max(0,Math.floor((i.value*p/100-i.liens)/100)*100);
+    var profit=i.value-offer-i.liens-i.closing;
+    return {p:p,offer:offer,profit:profit,meets:profit>=i.profitGoal,perAcre:i.acres>0?offer/i.acres:null};
+  });
+  var ceilRaw=i.value-i.liens-i.closing-i.profitGoal;
+  return {rows:rows,ceiling:Math.max(0,Math.floor(ceilRaw/100)*100),ceilRaw:ceilRaw};
+}
+
+/* Monthly amortization with payments rounded to cents; the last payment absorbs rounding. */
+function finCalc(i){
+  var down=i.downMode==='%'?i.price*i.downVal/100:i.downVal;
+  down=Math.min(Math.max(0,down),i.price);
+  var L=Math.max(0,i.price-down), n=Math.max(0,Math.round(i.termMonths)), r=i.rate/100/12;
+  var P=0;
+  if(L>0&&n>0){P=r===0?L/n:L*r/(1-Math.pow(1+r,-n));P=round2(P)}
+  var bm=Math.round(i.balloonMonths||0);
+  var hasBalloon=bm>0&&bm<n&&L>0;
+  var months=hasBalloon?bm:n;
+  var bal=L, paid=0, interest=0, years=[], yPaid=0, yInt=0, yPrin=0, last=P;
+  for(var m=1;m<=months&&bal>0;m++){
+    var it=round2(bal*r), pr=round2(P-it), pay=P;
+    if(m===n||pr>=bal){pr=bal;pay=round2(bal+it)}
+    bal=round2(bal-pr); paid+=pay; interest+=it; yPaid+=pay; yInt+=it; yPrin+=pr; last=pay;
+    if(m%12===0||m===months||bal<=0){years.push({year:Math.ceil(m/12),endMonth:m,paid:round2(yPaid),interest:round2(yInt),principal:round2(yPrin),balance:bal});yPaid=yInt=yPrin=0}
+  }
+  var balloon=hasBalloon?bal:0;
+  var total=round2(down+paid+balloon);
+  return {down:down,loan:L,payment:P,months:months,termMonths:n,hasBalloon:hasBalloon,balloon:balloon,balloonMonths:bm,
+    totalToSeller:total,interest:round2(interest),lastPayment:last,
+    buyerMonthly:round2(P+(i.ti||0)),cashflow:i.rent>0?round2(i.rent-P-(i.ti||0)):null,
+    spread:i.resale>0?i.resale-i.price:null,years:years};
+}
+</script>
+
+<script>
+(function(){
+var DEF={
+  'h-prop':'','h-arv':'250,000','h-rep':'40,000','h-pct':'70','h-fee':'10,000','h-close':'3,000','h-holdm':'500','h-holdn':'3','h-room':'10',
+  'l-prop':'','l-acres':'5','l-ppa':'8,000','l-mv':'40,000','l-lo':'25','l-tg':'30','l-hi':'50','l-liens':'1,200','l-close':'1,500','l-profit':'15,000',
+  'f-prop':'','f-price':'200,000','f-ti':'300','f-rent':'1,800','f-resale':'215,000',
+  'fa-down':'10','fa-dmode':'%','fa-rate':'0','fa-term':'30','fa-unit':'yr','fa-balloon':'5','fa-on':true,
+  'fb-down':'5','fb-dmode':'%','fb-rate':'4','fb-term':'30','fb-unit':'yr','fb-balloon':'7','fb-on':true,
+  'fc-down':'20,000','fc-dmode':'$','fc-rate':'5','fc-term':'20','fc-unit':'yr','fc-balloon':'','fc-on':true
+};
+var UI={view:'comps',cash:'home',lmode:'ppa',hpresent:'open',lpresent:1,hshowmath:true};
+var KEY='seller-offer-calc.v1';
+var $=function(id){return document.getElementById(id)};
+
+/* build option cards */
+var optWrap=$('f-options');
+['a','b','c'].forEach(function(k){
+  var L=k.toUpperCase(), p='f'+k+'-';
+  optWrap.insertAdjacentHTML('beforeend',
+  '<div class="opt" id="'+p+'card"><div class="opt-head"><div class="row"><span class="badge">'+L+'</span><h3>Option '+L+'</h3></div>'+
+  '<label class="check"><input type="checkbox" id="'+p+'on"> Include</label></div>'+
+  '<div class="fields">'+
+  '<div class="field wide"><label for="'+p+'down">Down payment</label><div class="box"><input id="'+p+'down" inputmode="decimal"><select id="'+p+'dmode" aria-label="Down payment unit"><option value="%">% of price</option><option value="$">dollars</option></select></div><span class="hint num" id="'+p+'downhint"></span></div>'+
+  '<div class="field"><label for="'+p+'rate">Interest rate</label><div class="box"><input id="'+p+'rate" inputmode="decimal"><span>%</span></div></div>'+
+  '<div class="field"><label for="'+p+'term">Term</label><div class="box"><input id="'+p+'term" inputmode="decimal"><select id="'+p+'unit" aria-label="Term unit"><option value="yr">years</option><option value="mo">months</option></select></div></div>'+
+  '<div class="field wide"><label for="'+p+'balloon">Balloon due after</label><div class="box"><input id="'+p+'balloon" inputmode="decimal" placeholder="No balloon"><span>years</span></div><span class="hint">Leave blank for no balloon.</span></div>'+
+  '</div></div>');
+});
+
+/* storage */
+function load(){try{var s=JSON.parse(localStorage.getItem(KEY)||'null');return s&&typeof s==='object'?s:null}catch(e){return null}}
+function save(){try{var vals={};Object.keys(DEF).forEach(function(id){var el=$(id);if(el)vals[id]=el.type==='checkbox'?el.checked:el.value});localStorage.setItem(KEY,JSON.stringify({vals:vals,ui:UI}))}catch(e){}}
+function setVal(id,v){var el=$(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=v}
+var saved=load();
+Object.keys(DEF).forEach(function(id){setVal(id,saved&&saved.vals&&id in saved.vals?saved.vals[id]:DEF[id])});
+if(saved&&saved.ui){for(var k in UI){if(k in saved.ui)UI[k]=saved.ui[k]}}
+
+/* number helpers */
+function num(id){var el=$(id);if(!el)return NaN;var n=parseFloat(String(el.value).replace(/[^0-9.\-]/g,''));return isFinite(n)?n:NaN}
+function n0(id){var n=num(id);return isNaN(n)?0:n}
+var usd0=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+var usd2=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
+function m0(x){return usd0.format(Math.round(x))}
+function m2(x){return usd2.format(x)}
+function pctTxt(x){return (Math.round(x*10)/10)+'%'}
+function signed(x,f){return (x<0?'−':'')+f(Math.abs(x))}
+
+/* ---------- HOME ---------- */
+function renderHome(){
+  var i={arv:n0('h-arv'),repairs:n0('h-rep'),pct:n0('h-pct'),fee:n0('h-fee'),closing:n0('h-close'),holdMonthly:n0('h-holdm'),holdMonths:n0('h-holdn'),room:n0('h-room')};
+  var o=homeCalc(i);
+  $('h-out-mao').textContent=signed(o.mao,m0);
+  $('h-out-open').textContent=m0(o.opening);
+  $('h-out-pct').textContent=i.arv>0?pctTxt(o.pctOfArv*100)+' of ARV':'Enter an ARV';
+  var f=$('h-flag');
+  if(o.mao<=0){f.hidden=false;f.textContent='The costs are larger than '+pctTxt(i.pct)+' of ARV, so there is no cash offer that works at these numbers.'}else f.hidden=true;
+  $('h-ledger').innerHTML=[
+    ['ARV × '+pctTxt(i.pct),m0(o.base)],['Repairs','−'+m0(i.repairs)],['Your fee or profit','−'+m0(i.fee)],
+    ['Closing costs','−'+m0(i.closing)],['Holding ('+(i.holdMonths||0)+' mo × '+m0(i.holdMonthly)+')','−'+m0(o.holding)],['Max allowable offer',signed(o.mao,m0)]
+  ].map(function(r){return '<li><span>'+r[0]+'</span><span>'+r[1]+'</span></li>'}).join('');
+  var fig=UI.hpresent==='mao'?Math.max(0,o.mao):o.opening;
+  var prop=$('h-prop').value.trim();
+  var t='Cash offer'+(prop?' for '+prop:'')+'\n\nOffer price: '+m0(fig)+', all cash.';
+  if(UI.hshowmath&&i.arv>0)t+='\n\nHow I got there: once repaired, the home should be worth about '+m0(i.arv)+'. I estimate it needs about '+m0(i.repairs)+' in repairs, and I also cover the closing and holding costs.';
+  t+='\n\nThis offer is based on these estimates and is subject to a walkthrough and a signed purchase agreement.';
+  $('h-sum').value=t;
+  strip('home',[['Walk-away '+m0(Math.max(0,o.mao)),'Open '+m0(o.opening)]]);
+}
+
+/* ---------- LAND ---------- */
+function renderLand(){
+  var acres=n0('l-acres');
+  var value=UI.lmode==='ppa'?acres*n0('l-ppa'):n0('l-mv');
+  var i={value:value,acres:acres,pcts:[n0('l-lo'),n0('l-tg'),n0('l-hi')],liens:n0('l-liens'),closing:n0('l-close'),profitGoal:n0('l-profit')};
+  var o=landCalc(i);
+  $('l-out-mv').textContent='Market value '+m0(value)+(UI.lmode==='ppa'&&acres>0?' ('+acres+' ac × '+m0(n0('l-ppa'))+')':'');
+  var names=['Low','Target','High'];
+  $('l-tiers').innerHTML=o.rows.map(function(r,k){
+    return '<div class="tier'+(k===1?' key':'')+'"><span class="lbl">'+names[k]+' · '+pctTxt(r.p)+'</span><span class="val">'+m0(r.offer)+'</span>'+
+      (r.perAcre!==null?'<span class="sub">'+m0(r.perAcre)+' per acre</span>':'')+
+      '<span class="sub">Profit '+signed(r.profit,m0)+'</span><span><span class="pill '+(r.meets?'ok':'no')+'">'+(r.meets?'Meets goal':'Under goal')+'</span></span></div>';
+  }).join('');
+  var f=$('l-flag');
+  if(value<=0){f.hidden=false;f.textContent='Enter acres and a price per acre, or a market value.'}
+  else if(o.ceilRaw<=0){f.hidden=false;f.textContent='Back taxes, closing costs and your profit goal add up to more than the market value, so no offer reaches your goal.'}
+  else f.hidden=true;
+  $('l-ledger').innerHTML=[
+    ['Market value',m0(value)],['Back taxes and liens','−'+m0(i.liens)],['Closing costs','−'+m0(i.closing)],['Profit goal','−'+m0(i.profitGoal)],['Highest offer that still hits your goal',m0(o.ceiling)]
+  ].map(function(r){return '<li><span>'+r[0]+'</span><span>'+r[1]+'</span></li>'}).join('');
+  var row=o.rows[UI.lpresent]||o.rows[1];
+  var prop=$('l-prop').value.trim();
+  var t='Cash offer for '+(prop||'your land')+(acres>0?' ('+acres+' acres)':'')+'\n\nOffer price: '+m0(row.offer)+', all cash.';
+  t+='\n\n'+(i.liens>0?'On top of this price, I would also pay the back taxes and liens (about '+m0(i.liens)+') and the closing costs at closing.':'On top of this price, I would also pay the closing costs.');
+  t+='\n\nThis offer is subject to clear title and a signed purchase agreement.';
+  $('l-sum').value=t;
+  strip('land',[['Target offer · '+pctTxt(o.rows[1].p),m0(o.rows[1].offer)]]);
+}
+
+/* ---------- FINANCING ---------- */
+var FIN_RESULTS=[];
+function renderFin(){
+  var price=n0('f-price'),ti=n0('f-ti'),rent=n0('f-rent'),resale=n0('f-resale');
+  var res=[], flags=[];
+  ['a','b','c'].forEach(function(k){
+    var p='f'+k+'-', on=$(p+'on').checked;
+    $(p+'card').classList.toggle('off',!on);
+    var unit=$(p+'unit').value, term=n0(p+'term'), tm=unit==='yr'?term*12:term;
+    var bal=num(p+'balloon'), bm=isNaN(bal)?0:bal*12;
+    var i={price:price,downMode:$(p+'dmode').value,downVal:n0(p+'down'),rate:n0(p+'rate'),termMonths:tm,balloonMonths:bm,ti:ti,rent:rent,resale:resale};
+    var o=finCalc(i);
+    $(p+'downhint').textContent=i.downMode==='%'?m0(o.down)+' down':pctTxt(price>0?o.down/price*100:0)+' of price';
+    if(on&&bm>0&&!o.hasBalloon&&o.loan>0)flags.push('Option '+k.toUpperCase()+': the balloon has to come before the end of the term, so it was left out.');
+    if(on&&o.termMonths<=0&&o.loan>0)flags.push('Option '+k.toUpperCase()+': enter a term.');
+    o.key=k.toUpperCase();o.on=on;o.rate=i.rate;o.downMode=i.downMode;
+    res.push(o);
+  });
+  FIN_RESULTS=res;
+  var act=res.filter(function(o){return o.on});
+  var f=$('f-flag'); if(flags.length){f.hidden=false;f.textContent=flags.join(' ')}else f.hidden=true;
+  function cls(x){return x===null?'':(x<0?' class="neg"':' class="pos"')}
+  function yrs(m){return m%12===0?(m/12)+' yr':m+' mo'}
+  var rows=[
+    ['Down payment',function(o){return m0(o.down)}],
+    ['Amount financed',function(o){return m0(o.loan)}],
+    ['Interest rate',function(o){return pctTxt(o.rate)}],
+    ['Term',function(o){return o.termMonths?yrs(o.termMonths):'–'}],
+    ['Monthly to seller',function(o){return m2(o.payment)},'em'],
+    ['Your monthly with taxes and insurance',function(o){return m2(o.buyerMonthly)}],
+    ['Payments before payoff or balloon',function(o){return o.loan>0?String(o.months):'–'}],
+    ['Balloon',function(o){return o.hasBalloon?m0(o.balloon)+' at '+yrs(o.balloonMonths):'None'}],
+    ['Total paid to seller',function(o){return m0(o.totalToSeller)},'em'],
+    ['Interest the seller earns',function(o){return m0(o.interest)}]
+  ];
+  var head='<thead><tr><th></th>'+act.map(function(o){return '<th>Option '+o.key+'</th>'}).join('')+'</tr></thead>';
+  var body=rows.map(function(r){return '<tr'+(r[2]?' class="em"':'')+'><td>'+r[0]+'</td>'+act.map(function(o){return '<td>'+r[1](o)+'</td>'}).join('')+'</tr>'}).join('');
+  if(rent>0)body+='<tr><td>Rent minus your monthly</td>'+act.map(function(o){return '<td'+cls(o.cashflow)+'>'+signed(o.cashflow,m0)+'/mo</td>'}).join('')+'</tr>';
+  if(resale>0)body+='<tr><td>Resale value minus price</td>'+act.map(function(o){return '<td'+cls(o.spread)+'>'+signed(o.spread,m0)+'</td>'}).join('')+'</tr>';
+  $('f-compare').innerHTML=act.length?head+'<tbody>'+body+'</tbody>':'<tbody><tr><td>Turn on at least one option.</td></tr></tbody>';
+
+  /* amortization milestones */
+  var maxY=0; act.forEach(function(o){maxY=Math.max(maxY,Math.ceil(o.months/12))});
+  var ys=[]; for(var y=1;y<=maxY;y++){if(y<=5||y%5===0||y===maxY||act.some(function(o){return o.hasBalloon&&Math.ceil(o.balloonMonths/12)===y}))ys.push(y)}
+  var ah='<thead><tr><th>End of year</th>'+act.map(function(o){return '<th>Option '+o.key+'</th>'}).join('')+'</tr></thead>';
+  var ab=ys.map(function(y){return '<tr><td>Year '+y+'</td>'+act.map(function(o){
+    var row=null;for(var j=0;j<o.years.length;j++){if(o.years[j].year===y){row=o.years[j];break}}
+    if(!row)return '<td>–</td>';
+    var done=row.endMonth===o.months;
+    return '<td>'+m0(row.balance)+(done?(o.hasBalloon?' · balloon due':' · paid'):'')+'</td>';
+  }).join('')+'</tr>'}).join('');
+  $('f-amort').innerHTML=act.length&&ys.length?ah+'<tbody>'+ab+'</tbody>':'<tbody><tr><td>Nothing to show yet.</td></tr></tbody>';
+
+  /* summary */
+  var prop=$('f-prop').value.trim();
+  var t='Owner financing options'+(prop?' for '+prop:'')+'\n\nPrice: '+m0(price)+'. You would receive a down payment at closing, then monthly payments.';
+  function yrs(m){var y=m/12;return m%12===0?(y+(y===1?' year':' years')):(m+(m===1?' month':' months'))}
+  act.forEach(function(o){
+    var rateTxt=o.rate>0?' at '+pctTxt(o.rate)+' interest':' with no interest';
+    var line='\n\nOption '+o.key+': '+m0(o.down)+' down';
+    if(o.loan<=0){line+=', paid in full at closing.'}
+    else if(o.hasBalloon){line+=', then '+m2(o.payment)+' a month for '+yrs(o.balloonMonths)+rateTxt+'. The remaining '+m0(o.balloon)+' would be paid in one balloon payment at that point.'}
+    else{line+=', then '+m2(o.payment)+' a month for '+yrs(o.termMonths)+rateTxt+', until the balance is paid off.'}
+    line+=' Total paid to you: '+m0(o.totalToSeller)+'.';
+    t+=line;
+  });
+  t+='\n\nMonthly amounts are principal and interest only. I would pay the property taxes and insurance separately.\n\nThese are proposed terms for discussion and would be set out in a written agreement.';
+  $('f-sum').value=t;
+  strip('fin',act.length?[[ 'Option '+act[0].key+' to seller', m2(act[0].payment)+'/mo']]:[['','']]);
+}
+
+/* ---------- view state ---------- */
+var STRIP={};
+function strip(view,v){STRIP[view]=v[0];showStrip()}
+function showStrip(){var key=UI.view==='fin'?'fin':UI.view==='comps'?'comps':UI.cash;var s=STRIP[key]||['',''];$('strip-l').textContent=s[0];$('strip-v').textContent=s[1]}
+
+function applyUI(){
+  document.querySelectorAll('.tab').forEach(function(b){b.setAttribute('aria-selected',String(b.dataset.view===UI.view));b.tabIndex=b.dataset.view===UI.view?0:-1});
+  $('view-comps').hidden=UI.view!=='comps'; $('view-cash').hidden=UI.view!=='cash'; $('view-fin').hidden=UI.view!=='fin';
+  document.querySelectorAll('[data-cash]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.cash===UI.cash))});
+  $('cash-home').hidden=UI.cash!=='home'; $('cash-land').hidden=UI.cash!=='land';
+  document.querySelectorAll('[data-lmode]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.lmode===UI.lmode))});
+  $('l-ppa-wrap').hidden=UI.lmode!=='ppa'; $('l-mv-wrap').hidden=UI.lmode!=='mv';
+  document.querySelectorAll('[data-hpresent]').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.hpresent===UI.hpresent))});
+  document.querySelectorAll('[data-lpresent]').forEach(function(b){b.setAttribute('aria-pressed',String(+b.dataset.lpresent===+UI.lpresent))});
+  $('h-showmath').checked=!!UI.hshowmath;
+  showStrip();
+}
+function all(){renderHome();renderLand();renderFin();showStrip()}
+
+function hashToUI(){var h=location.hash.replace('#','');if(h==='comps'){UI.view='comps'}else if(h==='cash-home'){UI.view='cash';UI.cash='home'}else if(h==='cash-land'){UI.view='cash';UI.cash='land'}else if(h==='financing'){UI.view='fin'}}
+function uiToHash(){var h=UI.view==='fin'?'financing':UI.view==='comps'?'comps':'cash-'+UI.cash;if(location.hash!=='#'+h){try{history.replaceState(null,'','#'+h)}catch(e){location.hash=h}}}
+
+document.addEventListener('click',function(e){
+  var b=e.target.closest('button');if(!b)return;
+  if(b.dataset.view){UI.view=b.dataset.view;uiToHash()}
+  else if(b.dataset.cash){UI.cash=b.dataset.cash;uiToHash()}
+  else if(b.dataset.lmode){UI.lmode=b.dataset.lmode;
+    /* keep the value consistent when switching */
+    if(UI.lmode==='mv'&&n0('l-acres')>0&&n0('l-ppa')>0)$('l-mv').value=Math.round(n0('l-acres')*n0('l-ppa')).toLocaleString('en-US');
+  }
+  else if(b.dataset.hpresent){UI.hpresent=b.dataset.hpresent}
+  else if(b.dataset.lpresent!==undefined){UI.lpresent=+b.dataset.lpresent}
+  else if(b.dataset.reset){var pre=b.dataset.reset;Object.keys(DEF).forEach(function(id){if(id.indexOf(pre)===0)setVal(id,DEF[id])});if(pre==='l')UI.lmode='ppa';if(pre==='h'){UI.hpresent='open';UI.hshowmath=true}if(pre==='l')UI.lpresent=1}
+  else if(b.id==='reset-all'){Object.keys(DEF).forEach(function(id){setVal(id,DEF[id])});UI.lmode='ppa';UI.hpresent='open';UI.lpresent=1;UI.hshowmath=true}
+  else if(b.dataset.copy){copy(b);return}
+  else return;
+  applyUI();all();save();
+});
+document.addEventListener('keydown',function(e){
+  if(!e.target.classList||!e.target.classList.contains('tab'))return;
+  if(e.key==='ArrowRight'||e.key==='ArrowLeft'){var V=['comps','cash','fin'],ix=V.indexOf(UI.view);UI.view=V[(ix+(e.key==='ArrowRight'?1:2))%3];uiToHash();applyUI();all();save();document.querySelector('.tab[aria-selected="true"]').focus()}
+});
+document.addEventListener('input',function(e){
+  if(e.target.id==='h-showmath'){UI.hshowmath=e.target.checked}
+  if(e.target.tagName==='TEXTAREA')return;
+  if(e.target.id==='h-arv')$('h-arv-src').hidden=true;
+  if(e.target.id==='l-ppa'||e.target.id==='l-acres')$('l-ppa-src').hidden=true;
+  if(e.target.id&&e.target.id.indexOf('c-')===0)return;
+  all();save();
+});
+document.addEventListener('change',function(e){if(e.target.tagName==='SELECT'){all();save()}});
+document.addEventListener('focusout',function(e){
+  var el=e.target;if(!el.matches||!el.matches('input[inputmode="decimal"]'))return;
+  var n=num(el.id);if(isNaN(n))return;
+  el.value=n.toLocaleString('en-US',{maximumFractionDigits:2});
+});
+
+function copy(b){
+  var ta=$(b.dataset.copy), msg=b.parentNode.querySelector('.copied');
+  function ok(t){msg.textContent=t;setTimeout(function(){msg.textContent=''},2500)}
+  function fallback(){ta.focus();ta.select();try{if(document.execCommand('copy')){ok('Copied');return}}catch(e){}ok('Text selected. Use Copy on your keyboard or phone.')}
+  try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(ta.value).then(function(){ok('Copied')},fallback)}else fallback()}catch(e){fallback()}
+}
+
+window.OfferCalc={
+  strip:function(view,v){strip(view,[v])},
+  setHome:function(arv,prop,src){$('h-arv').value=Math.round(arv).toLocaleString('en-US');if(prop)$('h-prop').value=prop;var el=$('h-arv-src');el.textContent=src;el.hidden=false;all();save()},
+  setLand:function(acres,ppa,prop,src){if(acres>0)$('l-acres').value=String(Math.round(acres*100)/100);$('l-ppa').value=Math.round(ppa).toLocaleString('en-US');UI.lmode='ppa';if(prop)$('l-prop').value=prop;var el=$('l-ppa-src');el.textContent=src;el.hidden=false;applyUI();all();save()}
+};
+window.addEventListener('hashchange',function(){hashToUI();applyUI();all()});
+hashToUI();applyUI();all();
+})();
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script id="comps-calc">
+/* ---------- comps: pure logic (no page access) ---------- */
+var COUNTY={11:'Alachua',12:'Baker',13:'Bay',14:'Bradford',15:'Brevard',16:'Broward',17:'Calhoun',18:'Charlotte',19:'Citrus',20:'Clay',21:'Collier',22:'Columbia',23:'Miami-Dade',24:'DeSoto',25:'Dixie',26:'Duval',27:'Escambia',28:'Flagler',29:'Franklin',30:'Gadsden',31:'Gilchrist',32:'Glades',33:'Gulf',34:'Hamilton',35:'Hardee',36:'Hendry',37:'Hernando',38:'Highlands',39:'Hillsborough',40:'Holmes',41:'Indian River',42:'Jackson',43:'Jefferson',44:'Lafayette',45:'Lake',46:'Lee',47:'Leon',48:'Levy',49:'Liberty',50:'Madison',51:'Manatee',52:'Marion',53:'Martin',54:'Monroe',55:'Nassau',56:'Okaloosa',57:'Okeechobee',58:'Orange',59:'Osceola',60:'Palm Beach',61:'Pasco',62:'Pinellas',63:'Polk',64:'Putnam',65:'St. Johns',66:'St. Lucie',67:'Santa Rosa',68:'Sarasota',69:'Seminole',70:'Sumter',71:'Suwannee',72:'Taylor',73:'Union',74:'Volusia',75:'Wakulla',76:'Walton',77:'Washington'};
+var GROUPS={
+  sfr:{label:'Single family',codes:[1]},
+  condo:{label:'Condo or co-op',codes:[4,5]},
+  mobile:{label:'Mobile home',codes:[2]},
+  multi:{label:'Multi-family',codes:[3,8]},
+  land:{label:'Vacant land',codes:[0,10,40,70,99,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69]}
+};
+var GROUP_ORDER=['sfr','condo','mobile','multi','land'];
+function trimS(v){return v==null?'':String(v).trim()}
+function useCode(s){var n=parseInt(trimS(s),10);return isNaN(n)?-1:n}
+function groupOf(code){for(var i=0;i<GROUP_ORDER.length;i++){if(GROUPS[GROUP_ORDER[i]].codes.indexOf(code)>=0)return GROUP_ORDER[i]}return 'other'}
+function isArms(q){q=trimS(q);return q==='01'||q==='02'||q==='1'||q==='2'}
+function milesBetween(a,b){var R=3958.8,t=Math.PI/180,dLat=(b.lat-a.lat)*t,dLon=(b.lon-a.lon)*t;
+  var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dLon/2)*Math.sin(dLon/2);return 2*R*Math.asin(Math.min(1,Math.sqrt(h)))}
+function ringCentroid(rings){if(!rings||!rings.length||!rings[0].length)return null;var r=rings[0],x=0,y=0;for(var i=0;i<r.length;i++){x+=r[i][0];y+=r[i][1]}return {lon:x/r.length,lat:y/r.length}}
+function pointInRings(pt,rings){if(!rings)return false;var inside=false;rings.forEach(function(r){for(var i=0,j=r.length-1;i<r.length;j=i++){var xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1];
+  if(((yi>pt.lat)!==(yj>pt.lat))&&(pt.lon<(xj-xi)*(pt.lat-yi)/(yj-yi)+xi))inside=!inside}});return inside}
+
+/* Turn one ArcGIS feature into a plain record. */
+function normFeature(f){
+  var a=f.attributes||{}, rings=f.geometry&&f.geometry.rings||null;
+  var c=f.centroid&&isFinite(f.centroid.x)?{lon:f.centroid.x,lat:f.centroid.y}:ringCentroid(rings);
+  var code=useCode(a.DOR_UC), sq=+a.LND_SQFOOT||0, acres=0;
+  if(sq>0)acres=sq/43560;else if(+a.LND_UNTS_C===1&&+a.NO_LND_UNT>0)acres=+a.NO_LND_UNT;
+  var sm=parseInt(trimS(a.SALE_MO1),10);
+  return {id:trimS(a.PARCEL_ID),county:COUNTY[+a.CO_NO]||'',code:code,group:groupOf(code),
+    addr:trimS(a.PHY_ADDR1),city:trimS(a.PHY_CITY),zip:a.PHY_ZIPCD?String(Math.round(+a.PHY_ZIPCD)).padStart(5,'0'):'',
+    owner:trimS(a.OWN_NAME),sqft:+a.TOT_LVG_AR||0,yr:+a.ACT_YR_BLT||0,acres:acres,jv:+a.JV||0,
+    price:+a.SALE_PRC1||0,sy:+a.SALE_YR1||0,sm:isNaN(sm)?0:sm,qual:trimS(a.QUAL_CD1),vi:trimS(a.VI_CD1).toUpperCase(),
+    roll:+a.ASMNT_YR||0,lat:c?c.lat:null,lon:c?c.lon:null,rings:rings};
+}
+function monthsAgo(rec,now){if(!rec.sy||!rec.sm)return -1;return (now.getFullYear()*12+now.getMonth()+1)-(rec.sy*12+rec.sm)}
+
+/* Add distance, age and unit prices relative to the subject point. */
+function enrich(recs,pt,now,subjectId){
+  return recs.filter(function(r){return r.lat!=null&&r.id!==subjectId}).map(function(r){
+    r.dist=milesBetween(pt,{lat:r.lat,lon:r.lon});r.ago=monthsAgo(r,now);
+    r.ppsf=r.sqft>0&&r.price>0?r.price/r.sqft:0;r.ppa=r.acres>0&&r.price>0?r.price/r.acres:0;return r});
+}
+
+/* f: {radius, months, qual:'arms'|'all', minp, type, sqmin, sqmax, yrmin, yrmax, acmin, acmax}; subject may be null */
+function passes(c,f,subject){
+  if(c.dist>f.radius+1e-9)return false;
+  if(c.ago<0||c.ago>f.months)return false;
+  if(f.qual==='arms'&&!isArms(c.qual))return false;
+  if(c.price<(f.minp||0))return false;
+  var g=f.type==='same'?(subject?subject.group:'any'):f.type;
+  if(g!=='any'){
+    if(c.group!==g)return false;
+    if(g==='other'&&subject&&c.code!==subject.code)return false;
+    if(c.vi){if(g==='land'&&c.vi!=='V')return false;if(g!=='land'&&g!=='other'&&c.vi!=='I')return false}
+  }
+  if(f.sqmin&&c.sqft<f.sqmin)return false; if(f.sqmax&&c.sqft>f.sqmax)return false;
+  if(f.yrmin&&(!c.yr||c.yr<f.yrmin))return false; if(f.yrmax&&(!c.yr||c.yr>f.yrmax))return false;
+  if(f.acmin&&c.acres<f.acmin)return false; if(f.acmax&&c.acres>f.acmax)return false;
+  return true;
+}
+function isLandSubject(s){return !!s&&s.group==='land'}
+function similar(c,s){
+  if(!s)return true;
+  if(isLandSubject(s)){if(s.acres>0){if(!(c.acres>0))return false;var k=c.acres/s.acres;return k>=0.4&&k<=2.5}return true}
+  if(s.sqft>0){if(!(c.sqft>0))return false;if(Math.abs(c.sqft-s.sqft)/s.sqft>0.3)return false}
+  if(s.yr>0&&c.yr>0&&Math.abs(c.yr-s.yr)>20)return false;
+  return true;
+}
+var AUTO_STEPS=[[0.5,6],[1,6],[0.5,12],[1,12],[2,12],[2,24]];
+/* Pick the 5 best comps: start at 0.5 mi / 6 months and widen only as far as needed. */
+function autoPick(comps,subject,n){
+  n=n||5;
+  function score(c,r,m){var s=c.dist/r+Math.max(0,c.ago)/m;
+    if(subject&&!isLandSubject(subject)&&subject.sqft>0&&c.sqft>0)s+=2*Math.abs(c.sqft-subject.sqft)/subject.sqft;
+    if(isLandSubject(subject)&&subject.acres>0&&c.acres>0)s+=Math.abs(Math.log(c.acres/subject.acres));return s}
+  var base={qual:'arms',minp:10000,type:'same'}, best=null;
+  for(var i=0;i<AUTO_STEPS.length;i++){
+    var r=AUTO_STEPS[i][0],m=AUTO_STEPS[i][1];
+    var f=Object.assign({},base,{radius:r,months:m});
+    var cands=comps.filter(function(c){return passes(c,f,subject)&&similar(c,subject)});
+    if(!best||cands.length>best.cands.length)best={cands:cands,r:r,m:m,step:i,relaxed:false};
+    if(cands.length>=n){best={cands:cands,r:r,m:m,step:i,relaxed:false};break}
+  }
+  if(best.cands.length<n){
+    var f2=Object.assign({},base,{radius:2,months:24});
+    var loose=comps.filter(function(c){return passes(c,f2,subject)});
+    if(loose.length>best.cands.length)best={cands:loose,r:2,m:24,step:AUTO_STEPS.length,relaxed:true};
+  }
+  var picked=best.cands.slice().sort(function(a,b){return score(a,best.r,best.m)-score(b,best.r,best.m)}).slice(0,n);
+  return {picked:picked,radius:best.r,months:best.m,widened:best.step>0,relaxed:best.relaxed};
+}
+function averages(list,subject){
+  var out={n:list.length,avgPrice:0,avgPpsf:0,avgPpa:0,sizeAdj:0,landValue:0};
+  if(!list.length)return out;
+  var sp=0,np=0,sp2=0,np2=0,sa=0,na=0;
+  list.forEach(function(c){sp+=c.price;np++;if(c.ppsf>0){sp2+=c.ppsf;np2++}if(c.ppa>0){sa+=c.ppa;na++}});
+  out.avgPrice=sp/np;out.avgPpsf=np2?sp2/np2:0;out.avgPpa=na?sa/na:0;
+  if(subject&&subject.sqft>0&&out.avgPpsf)out.sizeAdj=out.avgPpsf*subject.sqft;
+  if(subject&&subject.acres>0&&out.avgPpa)out.landValue=out.avgPpa*subject.acres;
+  return out;
+}
+</script>
+<script>
+(function(){
+var LAYER='https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query';
+var GEOCODER='https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates';
+var NOMINATIM='https://nominatim.openstreetmap.org/search';
+var FIELDS='PARCEL_ID,CO_NO,DOR_UC,OWN_NAME,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,TOT_LVG_AR,ACT_YR_BLT,LND_SQFOOT,LND_UNTS_C,NO_LND_UNT,JV,SALE_PRC1,SALE_YR1,SALE_MO1,QUAL_CD1,VI_CD1,ASMNT_YR';
+var KEY='seller-offer-comps.v1';
+var MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var $=function(id){return document.getElementById(id)};
+var usd0=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+function m0(x){return usd0.format(Math.round(x||0))}
+function n0(x){return Math.round(x||0).toLocaleString('en-US')}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function when(c){return c.sm&&c.sy?MONTHS[c.sm-1]+' '+c.sy:'Unknown date'}
+function acresTxt(a){return a>=10?n0(a):(Math.round(a*100)/100).toString()}
+function addrLine(c){return [c.addr||'No street address',c.city].filter(Boolean).join(', ')}
+
+var F={radius:0.5,months:6,type:'same',qual:'arms',minp:10000,sqmin:0,sqmax:0,yrmin:0,yrmax:0,acmin:0,acmax:0,sort:'dist',lastAddr:''};
+try{var sv=JSON.parse(localStorage.getItem(KEY)||'null');if(sv&&typeof sv==='object')for(var k in F){if(k in sv)F[k]=sv[k]}}catch(e){}
+function saveF(){try{localStorage.setItem(KEY,JSON.stringify(F))}catch(e){}}
+var S={pt:null,subject:null,all:[],checked:{},auto:null,newest:null,busy:false};
+
+/* ---------- map ---------- */
+var map=L.map('c-map',{zoomControl:true,tap:true}).setView([27.9,-81.6],7);
+var imagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,maxNativeZoom:19,attribution:'Imagery &copy; Esri, Maxar, Earthstar Geographics'});
+var usgs=L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,maxNativeZoom:16,attribution:'Imagery: USGS The National Map'});
+var streets=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,maxNativeZoom:19,attribution:'Map &copy; Esri'});
+var labels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:21,maxNativeZoom:19,pane:'overlayPane',opacity:.85});
+imagery.addTo(map);labels.addTo(map);
+L.control.layers({'Satellite (Esri)':imagery,'Satellite (USGS)':usgs,'Streets':streets},{'Road labels':labels},{position:'topleft',collapsed:true}).addTo(map);
+L.control.scale({imperial:true,metric:false}).addTo(map);
+var gRadius=L.layerGroup().addTo(map), gParcels=L.layerGroup(), gMarks=L.layerGroup().addTo(map), gSubject=L.layerGroup().addTo(map);
+function cssVar(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()||'#1D6A51'}
+map.on('zoomend',function(){if(map.getZoom()>=16){if(!map.hasLayer(gParcels))gParcels.addTo(map)}else if(map.hasLayer(gParcels))map.removeLayer(gParcels)});
+map.on('click',function(e){
+  if(S.busy)return;
+  var ll=e.latlng, div=document.createElement('div');
+  div.innerHTML='<b>Use this spot as the property?</b><br><button type="button" class="linkbtn">Find comps here</button>';
+  div.querySelector('button').addEventListener('click',function(){map.closePopup();runAt({lat:ll.lat,lon:ll.lng,label:ll.lat.toFixed(5)+', '+ll.lng.toFixed(5)})});
+  L.popup().setLatLng(ll).setContent(div).openOn(map);
+});
+
+/* full screen: real full screen where the browser allows it, otherwise fill the window */
+var wrap=$('c-mapwrap'),fullBtn=$('c-full');
+function setFull(on){wrap.classList.toggle('full',on);document.body.classList.toggle('lock',on);fullBtn.textContent=on?'Exit full screen':'Full screen';setTimeout(function(){map.invalidateSize()},60)}
+fullBtn.addEventListener('click',function(){
+  var isOn=wrap.classList.contains('full')||document.fullscreenElement===wrap;
+  if(isOn){if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen().catch(function(){});setFull(false);return}
+  if(wrap.requestFullscreen){wrap.requestFullscreen().then(function(){setFull(true)}).catch(function(){setFull(true)})}else setFull(true);
+});
+document.addEventListener('fullscreenchange',function(){if(!document.fullscreenElement&&wrap.classList.contains('full'))setFull(false)});
+document.addEventListener('keydown',function(e){if(e.key==='Escape'&&wrap.classList.contains('full'))setFull(false)});
+window.addEventListener('hashchange',function(){setTimeout(function(){map.invalidateSize()},60)});
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-view="comps"]');if(b)setTimeout(function(){map.invalidateSize()},60)});
+
+/* ---------- network ---------- */
+function post(url,params){
+  return fetch(url,{method:'POST',body:new URLSearchParams(params)}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+    .then(function(j){if(j&&j.error)throw new Error(j.error.message||'Service error');return j});
+}
+function geocode(q){
+  var m=q.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
+  if(m)return Promise.resolve({lat:+m[1],lon:+m[2],label:q.trim()});
+  var u=GEOCODER+'?'+new URLSearchParams({SingleLine:q,f:'json',maxLocations:'1',countryCode:'USA',searchExtent:'-87.7,24.3,-79.8,31.1',outFields:'Match_addr'});
+  return fetch(u).then(function(r){return r.json()}).then(function(j){
+    var c=j&&j.candidates&&j.candidates[0];if(!c||c.score<75)throw new Error('nomatch');return {lat:c.location.y,lon:c.location.x,label:c.address};
+  }).catch(function(){
+    var u2=NOMINATIM+'?'+new URLSearchParams({format:'jsonv2',limit:'1',countrycodes:'us',viewbox:'-87.7,31.1,-79.8,24.3',bounded:'1',q:q});
+    return fetch(u2).then(function(r){return r.json()}).then(function(a){if(!a||!a.length)throw new Error('nomatch');return {lat:+a[0].lat,lon:+a[0].lon,label:a[0].display_name}});
+  });
+}
+function geomParams(pt,dist,units){return {geometry:pt.lon+','+pt.lat,geometryType:'esriGeometryPoint',inSR:'4326',spatialRel:'esriSpatialRelIntersects',distance:String(dist),units:units,outSR:'4326',f:'json'}}
+function findSubject(pt){
+  var p=Object.assign(geomParams(pt,80,'esriSRUnit_Foot'),{where:'1=1',outFields:FIELDS,returnGeometry:'true',geometryPrecision:'6',resultRecordCount:'25'});
+  return post(LAYER,p).then(function(j){
+    var recs=(j.features||[]).map(normFeature).filter(function(r){return r.lat!=null});
+    if(!recs.length)return null;
+    var hit=recs.filter(function(r){return pointInRings(pt,r.rings)})[0];
+    if(hit)return hit;
+    recs.sort(function(a,b){return milesBetween(pt,a)-milesBetween(pt,b)});return recs[0];
+  });
+}
+function fetchSales(pt,onProgress){
+  var now=new Date(), cut=new Date(now.getFullYear(),now.getMonth()-24,1);
+  var base=Object.assign(geomParams(pt,2,'esriSRUnit_StatuteMile'),{where:'SALE_YR1>='+cut.getFullYear()+' AND SALE_PRC1>=1000',outFields:FIELDS,
+    returnGeometry:'true',returnCentroid:'true',geometryPrecision:'6',maxAllowableOffset:'0.000008',orderByFields:'OBJECTID',resultRecordCount:'2000'});
+  var all=[],useCentroid=true;
+  function page(off){
+    var p=Object.assign({},base,{resultOffset:String(off)});if(!useCentroid)delete p.returnCentroid;
+    return post(LAYER,p).catch(function(err){if(useCentroid&&off===0){useCentroid=false;var q=Object.assign({},p);delete q.returnCentroid;return post(LAYER,q)}throw err})
+      .then(function(j){var f=j.features||[];all=all.concat(f.map(normFeature));if(onProgress)onProgress(all.length);
+        if(j.exceededTransferLimit&&f.length&&all.length<12000)return page(off+f.length);return all});
+  }
+  return page(0);
+}
+
+/* ---------- flow ---------- */
+function status(msg,kind){var el=$('c-status');if(!msg){el.hidden=true;return}el.hidden=false;el.className='flag '+(kind||'info');el.textContent=msg}
+function runAt(pt){
+  S.busy=true;S.pt=pt;S.subject=null;S.all=[];S.checked={};S.auto=null;
+  $('c-go').disabled=true;status('Finding the parcel and loading sales within 2 miles…');
+  gSubject.clearLayers();gMarks.clearLayers();gParcels.clearLayers();gRadius.clearLayers();
+  L.circleMarker([pt.lat,pt.lon],{radius:9,color:'#fff',weight:3,fillColor:'#E8A33D',fillOpacity:1}).addTo(gSubject);
+  map.setView([pt.lat,pt.lon],15);
+  findSubject(pt).catch(function(){return null}).then(function(subj){
+    S.subject=subj;
+    return fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')});
+  }).then(function(recs){
+    var now=new Date();
+    S.all=enrich(recs,pt,now,S.subject?S.subject.id:'');
+    S.newest=null;S.all.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
+    var a=autoPick(S.all,S.subject,5);S.auto=a;
+    a.picked.forEach(function(c){S.checked[c.id]=true});
+    F.radius=a.radius;F.months=a.months;saveF();syncFilterUI();
+    status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
+    render();sendToCalc();
+  }).catch(function(err){
+    status("Couldn't load the Florida parcel records ("+(err&&err.message||'network error')+"). Check your connection and try again.",'bad');
+  }).then(function(){S.busy=false;$('c-go').disabled=false});
+}
+$('c-form').addEventListener('submit',function(e){
+  e.preventDefault();var q=$('c-addr').value.trim();if(!q)return;F.lastAddr=q;saveF();
+  status('Looking up the address…');
+  geocode(q).then(function(pt){
+    if(pt.lat<24.3||pt.lat>31.1||pt.lon<-87.7||pt.lon>-79.8){status('That address looks like it is outside Florida. These records only cover Florida.','warn');return}
+    runAt(pt);
+  }).catch(function(){status("Couldn't find that address. Try adding the city and FL, or tap the spot on the map.",'warn')});
+});
+
+/* ---------- filters ---------- */
+function filt(){return {radius:+F.radius,months:+F.months,type:F.type,qual:F.qual,minp:+F.minp||0,sqmin:+F.sqmin||0,sqmax:+F.sqmax||0,yrmin:+F.yrmin||0,yrmax:+F.yrmax||0,acmin:+F.acmin||0,acmax:+F.acmax||0}}
+function syncFilterUI(){
+  document.querySelectorAll('[data-radius]').forEach(function(b){b.setAttribute('aria-pressed',String(+b.dataset.radius===+F.radius))});
+  document.querySelectorAll('[data-months]').forEach(function(b){b.setAttribute('aria-pressed',String(+b.dataset.months===+F.months))});
+  $('c-type').value=F.type;$('c-qual').value=F.qual;$('c-sort').value=F.sort;
+  $('c-minp').value=F.minp?n0(F.minp):'';
+  [['c-sqmin','sqmin'],['c-sqmax','sqmax'],['c-yrmin','yrmin'],['c-yrmax','yrmax'],['c-acmin','acmin'],['c-acmax','acmax']].forEach(function(p){$(p[0]).value=F[p[1]]?String(F[p[1]]):''});
+}
+document.addEventListener('click',function(e){
+  var b=e.target.closest&&e.target.closest('[data-radius],[data-months]');if(!b)return;
+  if(b.dataset.radius)F.radius=+b.dataset.radius;else F.months=+b.dataset.months;saveF();syncFilterUI();render();sendToCalc();
+});
+function numIn(id){var n=parseFloat(String($(id).value).replace(/[^0-9.]/g,''));return isFinite(n)?n:0}
+['c-sqmin','c-sqmax','c-yrmin','c-yrmax','c-acmin','c-acmax','c-minp'].forEach(function(id){$(id).addEventListener('input',function(){
+  var k=id.slice(2);F[k]=numIn(id);saveF();render();sendToCalc()})});
+['c-type','c-qual','c-sort'].forEach(function(id){$(id).addEventListener('change',function(){F[id.slice(2)]=$(id).value;saveF();render();sendToCalc()})});
+
+/* ---------- render ---------- */
+function visible(){var f=filt();var list=S.all.filter(function(c){return passes(c,f,S.subject)});
+  var srt={dist:function(a,b){return a.dist-b.dist},new:function(a,b){return a.ago-b.ago||a.dist-b.dist},price:function(a,b){return b.price-a.price},ppsf:function(a,b){return b.ppsf-a.ppsf}}[F.sort]||function(a,b){return a.dist-b.dist};
+  return list.sort(srt)}
+function chosen(list){return list.filter(function(c){return S.checked[c.id]})}
+function popupHtml(c){return '<b>'+esc(addrLine(c))+'</b><br>'+m0(c.price)+' · sold '+when(c)+'<br>'+
+  (c.sqft?n0(c.sqft)+' sqft · '+(c.ppsf?m0(c.ppsf)+'/sqft · ':''):'')+(c.yr?'built '+c.yr+' · ':'')+(c.acres?acresTxt(c.acres)+' ac · ':'')+c.dist.toFixed(2)+' mi<br>Buyer: '+esc(c.owner||'Not listed')}
+function render(){
+  var s=S.subject;
+  var sp=$('c-subject');
+  if(S.pt){sp.hidden=false;
+    var head=s?'<h2>'+esc(addrLine(s))+'</h2>':'<h2>'+esc(S.pt.label)+'</h2>';
+    var facts=s?['<span>Type <b>'+esc(s.group==='other'?'Use code '+s.code:GROUPS[s.group].label)+'</b></span>',
+      s.sqft?'<span>Living area <b>'+n0(s.sqft)+' sqft</b></span>':'',s.yr?'<span>Built <b>'+s.yr+'</b></span>':'',
+      s.acres?'<span>Lot <b>'+acresTxt(s.acres)+' ac</b></span>':'',s.jv?'<span>County just value <b>'+m0(s.jv)+'</b></span>':'',
+      s.price&&s.sy?'<span>Last sale <b>'+m0(s.price)+' in '+when(s)+'</b></span>':'',s.owner?'<span>Owner <b>'+esc(s.owner)+'</b></span>':'',
+      s.county?'<span>County <b>'+esc(s.county)+'</b></span>':''].join(''):'<span>No parcel record found at this spot, so comps are not matched by size or type.</span>';
+    sp.innerHTML='<div class="subj">'+head+'<div class="facts">'+facts+'</div></div>';
+  }
+  var list=visible(), ch=chosen(list), av=averages(ch,s), land=isLandSubject(s)||F.type==='land';
+  $('c-count').textContent=S.pt?list.length+' sale'+(list.length===1?'':'s')+' within '+F.radius+' mi, last '+F.months+' months':'Recent sales';
+  var bar=$('c-avg');
+  if(S.pt){bar.hidden=false;
+    var note='';
+    if(S.auto&&S.auto.picked.length){note=S.auto.picked.length<5?'Only '+S.auto.picked.length+' similar sale'+(S.auto.picked.length===1?'':'s')+' found, ':'Picked the 5 most similar sales ';
+      note+='within '+S.auto.radius+' mi and '+S.auto.months+' months'+(S.auto.widened?', widened from 0.5 mi and 6 months because there weren\'t 5 matches':'')+(S.auto.relaxed?', with size and age matching loosened':'')+'.'}
+    else if(S.all.length)note='No similar arm\'s-length sales were found. Tick sales below to build your own average.';
+    var tiles=land?
+      ['<div class="stat key"><span class="lbl">Avg price per acre</span><span class="val">'+(av.avgPpa?m0(av.avgPpa):'–')+'</span><span class="sub">'+av.n+' comp'+(av.n===1?'':'s')+' ticked</span></div>',
+       '<div class="stat"><span class="lbl">Land value estimate</span><span class="val">'+(av.landValue?m0(av.landValue):'–')+'</span><span class="sub">'+(s&&s.acres?'Per-acre average × '+acresTxt(s.acres)+' ac':'Needs the lot size')+'</span></div>']:
+      ['<div class="stat key"><span class="lbl">Average sale price</span><span class="val">'+(av.n?m0(av.avgPrice):'–')+'</span><span class="sub">'+av.n+' comp'+(av.n===1?'':'s')+' ticked · sent to ARV</span></div>',
+       '<div class="stat"><span class="lbl">Size-adjusted value</span><span class="val">'+(av.sizeAdj?m0(av.sizeAdj):'–')+'</span><span class="sub">'+(av.avgPpsf?m0(av.avgPpsf)+'/sqft':'')+(s&&s.sqft?' × '+n0(s.sqft)+' sqft':'')+'</span></div>'];
+    bar.innerHTML=tiles.join('')+'<p class="note" style="grid-column:1/-1">'+esc(note)+' Ticked sales update the cash offer tab. These are sale prices, so check whether the comps were renovated before treating the average as ARV.</p>'+
+      (S.newest?'<p class="note" style="grid-column:1/-1">Newest sale in the state records for this area: '+MONTHS[S.newest.sm-1]+' '+S.newest.sy+'. The records are updated about once a year, so the latest months may not show yet.</p>':'');
+  }
+  var box=$('c-list');
+  if(!S.pt){box.innerHTML='<p class="note">Enter an address to see nearby sales.</p>'}
+  else if(!list.length){box.innerHTML='<p class="note">No sales match these filters. Try a wider radius, a longer time window or all sale types.</p>'}
+  else{
+    var shown=list.slice(0,250);
+    box.innerHTML=shown.map(function(c){var on=!!S.checked[c.id];
+      return '<label class="comp'+(on?' on':'')+'"><input type="checkbox" data-pick="'+esc(c.id)+'"'+(on?' checked':'')+' aria-label="Use '+esc(addrLine(c))+' in the average">'+
+        '<div><div class="addr">'+esc(addrLine(c))+'</div><div class="sub">'+esc((c.group==='other'?'Use code '+c.code:GROUPS[c.group].label)+(c.county?' · '+c.county+' County':'')+(isArms(c.qual)?'':' · not arm\'s-length (code '+c.qual+')'))+'</div></div>'+
+        '<div class="price">'+m0(c.price)+'<small>'+when(c)+'</small></div>'+
+        '<div class="meta">'+[c.sqft?n0(c.sqft)+' sqft':'',c.ppsf?m0(c.ppsf)+'/sqft':'',c.yr?'built '+c.yr:'',c.acres?acresTxt(c.acres)+' ac':'',c.ppa&&c.acres>=0.5?m0(c.ppa)+'/ac':'',c.dist.toFixed(2)+' mi away'].filter(Boolean).join(' · ')+'</div>'+
+        '<div class="buyer"><span>Buyer:</span> '+esc(c.owner||'Not listed')+'</div>'+
+        '<div class="acts"><button type="button" class="linkbtn" data-focus="'+esc(c.id)+'">Show on map</button></div></label>';
+    }).join('')+(list.length>250?'<p class="note">Showing the first 250 of '+list.length+'. Narrow the filters to see the rest.</p>':'');
+  }
+  drawMap(list);
+  if(window.OfferCalc)window.OfferCalc.strip('comps',[av.n?(land?'Avg $/acre · '+av.n+' comps':'Avg of '+av.n+' comps'):'Comps',av.n?(land?m0(av.avgPpa):m0(av.avgPrice)):'–']);
+}
+var markById={};
+function drawMap(list){
+  gMarks.clearLayers();gParcels.clearLayers();gRadius.clearLayers();markById={};
+  if(!S.pt)return;
+  var acc=cssVar('--accent');
+  L.circle([S.pt.lat,S.pt.lon],{radius:F.radius*1609.344,color:'#fff',weight:2,dashArray:'6 6',fill:false,interactive:false}).addTo(gRadius);
+  if(S.subject&&S.subject.rings)L.polygon(S.subject.rings.map(function(r){return r.map(function(p){return [p[1],p[0]]})}),{color:'#E8A33D',weight:3,fill:false,interactive:false}).addTo(gSubject);
+  list.slice(0,1500).forEach(function(c){
+    var on=!!S.checked[c.id];
+    var mk=L.circleMarker([c.lat,c.lon],{radius:on?8:6,color:'#fff',weight:2,fillColor:on?acc:'#3B82C4',fillOpacity:on?1:.85}).bindPopup(popupHtml(c));
+    mk.addTo(gMarks);markById[c.id]=mk;
+    if(c.rings)L.polygon(c.rings.map(function(r){return r.map(function(p){return [p[1],p[0]]})}),{color:on?acc:'#9CC3E8',weight:1.5,fill:false,interactive:false}).addTo(gParcels);
+  });
+}
+$('c-list').addEventListener('change',function(e){var id=e.target.dataset&&e.target.dataset.pick;if(id==null)return;
+  if(e.target.checked)S.checked[id]=true;else delete S.checked[id];render();sendToCalc()});
+$('c-list').addEventListener('click',function(e){var b=e.target.closest('[data-focus]');if(!b)return;e.preventDefault();
+  var mk=markById[b.dataset.focus];if(!mk)return;map.setView(mk.getLatLng(),18);mk.openPopup();$('c-mapwrap').scrollIntoView({behavior:'smooth',block:'center'})});
+
+function sendToCalc(){
+  if(!window.OfferCalc||!S.pt)return;
+  var list=chosen(visible()), s=S.subject, av=averages(list,s);
+  if(!av.n)return;
+  var label=s?addrLine(s):S.pt.label;
+  var src='From '+av.n+' comp'+(av.n===1?'':'s')+' near this property on the Comps tab. Check them before you offer.';
+  if(isLandSubject(s)||F.type==='land'){if(av.avgPpa)window.OfferCalc.setLand(s&&s.acres?s.acres:0,av.avgPpa,label,src)}
+  else window.OfferCalc.setHome(av.avgPrice,label,src);
+}
+
+syncFilterUI();$('c-addr').value=F.lastAddr||'';render();
+})();
+</script>
+</body>
+</html>
