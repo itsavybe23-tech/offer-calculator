@@ -863,7 +863,7 @@ function findSubject(pt){
 function fetchSales(pt,onProgress){
   var now=new Date(), cut=new Date(now.getFullYear(),now.getMonth()-24,1);
   var base=Object.assign(geomParams(pt,2,'esriSRUnit_StatuteMile'),{where:'SALE_YR1>='+cut.getFullYear()+' AND SALE_PRC1>=1000',outFields:FIELDS,
-    returnGeometry:'true',returnCentroid:'true',geometryPrecision:'6',maxAllowableOffset:'0.000008',orderByFields:'OBJECTID',resultRecordCount:'2000'});
+    returnGeometry:'true',returnCentroid:'true',geometryPrecision:'5',maxAllowableOffset:'0.00003',orderByFields:'OBJECTID',resultRecordCount:'2000'});
   var all=[],useCentroid=true;
   function page(off){
     var p=Object.assign({},base,{resultOffset:String(off)});if(!useCentroid)delete p.returnCentroid;
@@ -882,10 +882,10 @@ function runAt(pt){
   gSubject.clearLayers();gMarks.clearLayers();gParcels.clearLayers();gRadius.clearLayers();
   L.circleMarker([pt.lat,pt.lon],{radius:9,color:'#fff',weight:3,fillColor:'#E8A33D',fillOpacity:1}).addTo(gSubject);
   map.setView([pt.lat,pt.lon],15);
-  findSubject(pt).catch(function(){return null}).then(function(subj){
-    S.subject=subj;
-    return fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')});
-  }).then(function(recs){
+  var subjP=findSubject(pt).catch(function(){return null});
+  var salesP=fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')});
+  Promise.all([subjP,salesP]).then(function(res){
+    S.subject=res[0];var recs=res[1];
     var now=new Date();
     S.all=enrich(recs,pt,now,S.subject?S.subject.id:'');
     S.newest=null;S.all.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
@@ -945,6 +945,7 @@ function render(){
     sp.innerHTML='<div class="subj">'+head+'<div class="facts">'+facts+'</div></div>';
   }
   var list=visible(), ch=chosen(list), av=averages(ch,s), land=isLandSubject(s)||F.type==='land';
+  var resi=!!s&&['sfr','condo','mobile','multi'].indexOf(s.group)>=0;
   $('c-count').textContent=S.pt?list.length+' sale'+(list.length===1?'':'s')+' within '+F.radius+' mi, last '+F.months+' months':'Recent sales';
   var bar=$('c-avg');
   if(S.pt){bar.hidden=false;
@@ -956,7 +957,7 @@ function render(){
       ['<div class="stat key"><span class="lbl">Avg price per acre</span><span class="val">'+(av.avgPpa?m0(av.avgPpa):'–')+'</span><span class="sub">'+av.n+' comp'+(av.n===1?'':'s')+' ticked</span></div>',
        '<div class="stat"><span class="lbl">Land value estimate</span><span class="val">'+(av.landValue?m0(av.landValue):'–')+'</span><span class="sub">'+(s&&s.acres?'Per-acre average × '+acresTxt(s.acres)+' ac':'Needs the lot size')+'</span></div>']:
       ['<div class="stat key"><span class="lbl">Average sale price</span><span class="val">'+(av.n?m0(av.avgPrice):'–')+'</span><span class="sub">'+av.n+' comp'+(av.n===1?'':'s')+' ticked · sent to ARV</span></div>',
-       '<div class="stat"><span class="lbl">Size-adjusted value</span><span class="val">'+(av.sizeAdj?m0(av.sizeAdj):'–')+'</span><span class="sub">'+(av.avgPpsf?m0(av.avgPpsf)+'/sqft':'')+(s&&s.sqft?' × '+n0(s.sqft)+' sqft':'')+'</span></div>'];
+       '<div class="stat"><span class="lbl">Size-adjusted value</span><span class="val">'+(av.sizeAdj&&resi?m0(av.sizeAdj):'–')+'</span><span class="sub">'+(av.avgPpsf?m0(av.avgPpsf)+'/sqft':'')+(s&&s.sqft&&resi?' × '+n0(s.sqft)+' sqft':'')+'</span></div>'];
     bar.innerHTML=tiles.join('')+'<p class="note" style="grid-column:1/-1">'+esc(note)+' Ticked sales update the cash offer tab. These are sale prices, so check whether the comps were renovated before treating the average as ARV.</p>'+
       (S.newest?'<p class="note" style="grid-column:1/-1">Newest sale in the state records for this area: '+MONTHS[S.newest.sm-1]+' '+S.newest.sy+'. The records are updated about once a year, so the latest months may not show yet.</p>':'');
   }
