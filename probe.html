@@ -11,11 +11,21 @@ var PRICE=/(SALE.?(PR|AMT|PRICE|AMOUNT|VAL)|PRICE_?1|SALEPRICE|LAST_?SALE_?(PRIC
 function pool(tasks,n){var i=0;return new Promise(function(res){var a=0;function nx(){if(i>=tasks.length){if(!a)res();return}var t=tasks[i++];a++;t().catch(function(){}).then(function(){a--;nx()})}for(var k=0;k<n;k++)nx()})}
 function checkLayer(name,lu){
   return j(lu+'?f=json').then(function(m){
-    if(!m.fields)return;var fs=m.fields.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')});
+    if(!m.fields){if(q.get('dump'))log('\n--- '+name+' | '+lu+' | NOFIELDS '+JSON.stringify(m.error||m).slice(0,200));return}
+    if(q.get('dump'))log('\n--- '+name+' | '+lu+' | '+(m.geometryType||'table')+' | '+m.fields.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')}).join(' ').slice(0,700));var fs=m.fields.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')});
     var d=m.fields.filter(function(f){return DATE.test(f.name)}),p=m.fields.filter(function(f){return PRICE.test(f.name)});
     if(!d.length||!p.length)return;if(m.fields.some(function(f){return f.name==='SALE_YR1'||f.name==='M_PAR_SAL1'}))return;
     var df=(d.find(function(f){return f.type==='esriFieldTypeDate'})||d[0]);
     var st=encodeURIComponent(JSON.stringify([{statisticType:'max',onStatisticField:df.name,outStatisticFieldName:'mx'},{statisticType:'count',onStatisticField:df.name,outStatisticFieldName:'n'}]));
+    if(df.type==='esriFieldTypeString'){
+      return j(lu+'/query?where='+encodeURIComponent(df.name+" LIKE '%2026%'")+'&outFields='+df.name+'&returnGeometry=false&resultRecordCount=2000&f=json').then(function(r){
+        var mx=0,ms='';(r.features||[]).forEach(function(f){var v=String(f.attributes[df.name]||''),t=0,m1;
+          if((m1=v.match(/^(\d{4})(\d{2})(\d{2})/)))t=+new Date(m1[1]+'-'+m1[2]+'-'+m1[3]);
+          else if((m1=v.match(/^(\d{1,2})\/\s*(\d{0,2})\s*\/(\d{4})/)))t=+new Date(m1[3]+'-'+('0'+m1[1]).slice(-2)+'-'+('0'+(m1[2]||'1')).slice(-2));
+          else t=+new Date(v)||0; if(t>mx){mx=t;ms=v}});
+        log('\n### HIT '+name+' | '+lu+' | max '+m.maxRecordCount+' | strdate '+df.name+' newest='+ms+' rows2026='+(r.features||[]).length+(r.error?' ERR '+r.error.message:'')+' | price '+p.map(function(f){return f.name}).join(','));
+      });
+    }
     return j(lu+'/query?where=1%3D1&outStatistics='+st+'&f=json').then(function(r){
       var a=r.features&&r.features[0]&&r.features[0].attributes||{};var mx=a.mx||a.MX;
       if(df.type==='esriFieldTypeDate'&&mx)mx=new Date(mx).toISOString().slice(0,10);
