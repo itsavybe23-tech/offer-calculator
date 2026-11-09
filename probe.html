@@ -35,7 +35,18 @@ function checkLayer(name,lu){
     }).catch(function(e){log('HIT? '+name+' | '+lu+' | date '+df.name+' stats failed '+e)});
   }).catch(function(e){log('FAIL '+name+' | '+lu+' | '+e)});
 }
+var SVC=/parcel|propert|sale|cama|tax|pao|apprais|landrec|cadast|ownership|pa_|_pa|basemap|public|opendata|open_data/i;
+function crawl(root,path,depth){
+  return j(root+(path?'/'+path:'')+'?f=json').then(function(d){
+    if(!path)log('DIR '+root+' folders '+(d.folders||[]).length+' services '+(d.services||[]).length);
+    var t=[];(d.services||[]).forEach(function(sv){if(!/MapServer|FeatureServer/.test(sv.type))return;if(!SVC.test(sv.name))return;
+      t.push(function(){return checkService('dir '+sv.name,root+'/'+sv.name+'/'+sv.type)})});
+    if(depth<1)(d.folders||[]).forEach(function(f){t.push(function(){return crawl(root,f,depth+1)})});
+    return pool(t,4);
+  }).catch(function(e){log('FAIL DIR '+root+'/'+(path||'')+' | '+e)});
+}
 function checkService(name,su){
+  if(/\/rest\/services$/.test(su))return crawl(su,'',0);
   if(seen[su])return Promise.resolve();seen[su]=1;
   if(/\/\d+$/.test(su))return checkLayer(name,su);
   return j(su+'?f=json').then(function(s){var ls=(s.layers||[]).concat(s.tables||[]);
