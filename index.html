@@ -725,7 +725,7 @@ function passes(c,f,subject){
   if(c.ago<0||c.ago>f.months)return false;
   if(f.qual==='arms'&&!isArms(c.qual))return false;
   if(c.price<(f.minp||0))return false;
-  var g=f.type==='same'?(subject?subject.group:'any'):f.type;
+  var g=f.type==='same'?(subject&&subject.code>=0?subject.group:'any'):f.type; // no use code on the subject: don't filter by type
   if(g!=='any'){
     if(c.group!==g)return false;
     if(g==='other'&&subject&&c.code!==subject.code)return false;
