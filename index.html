@@ -1005,15 +1005,20 @@ function fetchCounty(county,pt){
   var now=new Date(),cut=new Date(now.getFullYear(),now.getMonth()-12,1),tom=new Date(now.getTime()+864e5),today=saleKey({sy:now.getFullYear(),sm:now.getMonth()+1,sd:now.getDate()});
   var dateW=src.date(cut,tom);
   function one(url){
-    var usePrice=!!src.price,all=[];
-    var base=Object.assign(geomParams(pt,2,'esriSRUnit_StatuteMile'),{outFields:src.fields,returnGeometry:'true',geometryPrecision:'5',orderByFields:'OBJECTID',resultRecordCount:'2000'});
-    if(!src.pts)base.maxAllowableOffset='0.00005';
-    function page(off){
-      var p=Object.assign({},base,{where:usePrice?dateW+' AND '+src.price+' >= 1000':dateW});if(off)p.resultOffset=String(off);
-      return getJ(url+'/query',p).catch(function(err){if(off===0&&usePrice){usePrice=false;p.where=dateW;return getJ(url+'/query',p)}throw err})
-        .then(function(j){var f=j.features||[];all=all.concat(f);if(j.exceededTransferLimit&&f.length&&all.length<8000)return page(off+f.length);return all});
-    }
-    return page(0);
+    var usePrice=!!src.price;
+    var geo=geomParams(pt,2,'esriSRUnit_StatuteMile');
+    function w(){return usePrice?dateW+' AND '+src.price+' >= 1000':dateW}
+    var shape={outFields:src.fields,returnGeometry:'true',geometryPrecision:'5',outSR:'4326',f:'json'};
+    if(!src.pts)shape.maxAllowableOffset='0.00005';
+    /* Ask for the matching record ids first (fast), then fetch the records in parallel chunks. */
+    function ids(){return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'}))
+      .catch(function(err){if(usePrice){usePrice=false;return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'}))}throw err})}
+    return ids().then(function(j){
+      var list=(j.objectIds||[]).slice(0,8000),out=[],chunks=[];
+      for(var i=0;i<list.length;i+=200)chunks.push(list.slice(i,i+200));
+      return pool(chunks.map(function(c){return function(){return getJ(url+'/query',Object.assign({},shape,{where:w(),objectIds:c.join(',')})).then(function(r){out=out.concat(r.features||[])})}}),6)
+        .then(function(){if(chunks.length&&!out.length)throw new Error('no records came back');return out});
+    });
   }
   return Promise.all((src.urls||[src.url]).map(one)).then(function(lists){
     var recs=[].concat.apply([],lists).map(function(f){return normCounty(county,src,f)})
