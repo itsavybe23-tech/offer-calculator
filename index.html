@@ -828,7 +828,7 @@ var COUNTY_SOURCES={
     fields:'PID,ADDRFULL,CITYNAME,OWNER1,PC,RES_TOTAL_SFLA,CALCACRES,LASTSALEDT,LASTSALEPRICE',
     date:function(c,n){return "LASTSALEDT >= DATE '"+csIso(c)+"' AND LASTSALEDT <= DATE '"+csIso(n)+"'"},price:'LASTSALEPRICE',
     map:function(a){return {pid:a.PID,addr:a.ADDRFULL,city:a.CITYNAME,owner:a.OWNER1,price:a.LASTSALEPRICE,date:csDateMs(a.LASTSALEDT),code:csCode(a.PC),sqft:a.RES_TOTAL_SFLA,acres:a.CALCACRES}}},
-  'Sarasota':{name:'Sarasota County Property Appraiser',
+  'Sarasota':{name:'Sarasota County Property Appraiser',cent:true,
     url:'https://services3.arcgis.com/icrWMv7eBkctFu1f/arcgis/rest/services/ParcelProperty_Scpao/FeatureServer/0',
     fields:'ID,LOCN,LOCS,LOCT,LOCCITY,NAME1,STCD,LIVING,YRBL,LSQFT,SALE_AMT,SALE_DATE',
     date:function(c,n){return "SALE_DATE >= DATE '"+csIso(c)+"' AND SALE_DATE <= DATE '"+csIso(n)+"'"},price:'SALE_AMT',
@@ -850,7 +850,7 @@ var COUNTY_SOURCES={
     fields:'ParcelNumber,OwnerName,PropertyAddress,LandUseCode,Acres,LastSalePrice,LastSaleDate,YearBuilt',
     date:function(c,n){return "LastSaleDate >= DATE '"+csIso(c)+"' AND LastSaleDate <= DATE '"+csIso(n)+"'"},price:'LastSalePrice',
     map:function(a){return {pid:a.ParcelNumber,addr:a.PropertyAddress,owner:a.OwnerName,price:a.LastSalePrice,date:csDateMs(a.LastSaleDate),code:csCode(a.LandUseCode),acres:a.Acres,yr:csNum(a.YearBuilt)}}},
-  'Hernando':{name:'Hernando County Property Appraiser',
+  'Hernando':{name:'Hernando County Property Appraiser',cent:true,
     urls:['https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/SalesByYear/FeatureServer/1','https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/SalesByYear/FeatureServer/11'],
     fields:'PARCEL_NUMBER,SITUS_ADDRESS,SITUS_CITY,OWNER_NAME,LSALE_DATE,LSALE_PRICE,LSALE_QUALCD,LSALE_VORICD,CER_DOR_CODE,STRUCT1_ACT_YEAR,STRUCT1_BASE_SQFT,ACRES',
     date:function(c,n){return "LSALE_DATE >= DATE '"+csIso(c)+"' AND LSALE_DATE <= DATE '"+csIso(n)+"'"},price:'LSALE_PRICE',
@@ -866,8 +866,9 @@ var COUNTY_SOURCES={
 /* Turn one county feature into a sale record (null when it has no usable sale). */
 function normCounty(county,src,f){
   var a=f.attributes||{},m=src.map(a);if(!m||!m.date)return null;
-  var g=f.geometry||{},lat=null,lon=null,rings=null;
-  if(isFinite(g.x)&&isFinite(g.y)){lon=g.x;lat=g.y}else if(g.rings){var c=ringCentroid(g.rings);if(c){lon=c.lon;lat=c.lat}rings=g.rings}
+  var g=f.geometry||{},lat=null,lon=null,rings=null,ct=f.centroid;
+  if(ct&&isFinite(ct.x)&&isFinite(ct.y)){lon=ct.x;lat=ct.y}
+  else if(isFinite(g.x)&&isFinite(g.y)){lon=g.x;lat=g.y}else if(g.rings){var c=ringCentroid(g.rings);if(c){lon=c.lon;lat=c.lat}rings=g.rings}
   if(lat==null)return null;
   var code=m.code==null?-1:m.code, pid=trimS(m.pid);
   return {id:'C:'+county+':'+pid,cid:pid.replace(/[^0-9A-Za-z]/g,'').toUpperCase(),county:county,code:code,group:code>=0?groupOf(code):'other',
@@ -1010,10 +1011,13 @@ function fetchCounty(county,pt){
     function w(){return usePrice?dateW+' AND '+src.price+' >= 1000':dateW}
     var shape={outFields:src.fields,returnGeometry:'true',geometryPrecision:'5',outSR:'4326',f:'json'};
     if(!src.pts)shape.maxAllowableOffset='0.00005';
+    if(src.cent){shape.returnGeometry='false';shape.returnCentroid='true'} // hosted layers can send just a center point per parcel
     function page(off,all){
       var p=Object.assign({},geo,shape,{where:w(),orderByFields:'OBJECTID',resultRecordCount:'2000'});if(off)p.resultOffset=String(off);
-      return getJ(url+'/query',p).catch(function(err){if(off===0&&usePrice){usePrice=false;p.where=w();return getJ(url+'/query',p)}throw err})
-        .then(function(j){var f=j.features||[];all=all.concat(f);if(j.exceededTransferLimit&&f.length&&all.length<8000)return page(off+f.length,all);return all});
+      return getJ(url+'/query',p).catch(function(err){
+          if(off===0&&shape.returnCentroid){delete shape.returnCentroid;shape.returnGeometry='true';return {retry:1}}
+          if(off===0&&usePrice){usePrice=false;return {retry:1}}throw err})
+        .then(function(j){if(j.retry)return page(0,[]);var f=j.features||[];all=all.concat(f);if(j.exceededTransferLimit&&f.length&&all.length<8000)return page(off+f.length,all);return all});
     }
     if(!src.ids)return page(0,[]);
     /* Slow joined layers: ask for the matching record ids first (fast), then fetch the records in parallel chunks. */
@@ -1101,10 +1105,11 @@ function runAt(pt){
     S.newest=null;recs.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
     if(!keys.length)return recs;
     status('Loading recent sales from the '+keys.join(' and ')+' County appraiser'+(keys.length>1?'s':'')+'…');
-    return Promise.all(keys.map(function(k){return countyP[k]})).then(function(results){
+    var late=function(k){return new Promise(function(res){setTimeout(function(){res({county:k,err:new Error('timeout'),late:true})},30000)})};
+    return Promise.all(keys.map(function(k){return Promise.race([countyP[k],late(k)])})).then(function(results){
       var crecs=[];
       results.forEach(function(r){
-        if(r.err){S.sources[r.county]={ok:false,name:COUNTY_SOURCES[r.county].name};return}
+        if(r.err){S.sources[r.county]={ok:false,late:!!r.late,name:COUNTY_SOURCES[r.county].name};return}
         var nw=null;r.recs.forEach(function(c){if(!nw||saleKey(c)>saleKey(nw))nw=c});
         S.sources[r.county]={ok:true,name:r.src.name,n:r.recs.length,newest:nw?{sy:nw.sy,sm:nw.sm,sd:nw.sd}:null};crecs=crecs.concat(r.recs);
       });
@@ -1159,7 +1164,7 @@ function sourceNote(){
   var parts=[],stateTxt=S.newest?MONTHS[S.newest.sm-1]+' '+S.newest.sy:'';
   Object.keys(S.sources).forEach(function(k){var x=S.sources[k];
     if(x.ok)parts.push('Sales from the last 12 months in '+k+' County come straight from the '+x.name+(x.newest?' (newest sale '+when(x.newest)+')':'')+'.');
-    else parts.push("The "+x.name+" feed didn't load just now, so "+k+" County sales here come from the state tax roll only. Search again to retry.")});
+    else parts.push("The "+x.name+" feed "+(x.late?'was too slow':"didn't load")+" just now, so "+k+" County sales here come from the state tax roll only. Search again to retry.")});
   if(S.noFeed.length)parts.push(S.noFeed.join(', ')+' County '+(S.noFeed.length>1?"don't":"doesn't")+' publish a sales feed this page can read, so '+(S.noFeed.length>1?'their':'its')+' sales come from the state tax roll'+(stateTxt?', which runs through '+stateTxt:'')+' and is updated about once a year.');
   else if(stateTxt)parts.push('Older sales come from the state tax roll'+(Object.keys(S.sources).length?'':', which runs through '+stateTxt+' and is updated about once a year')+'.');
   if(Object.keys(S.sources).length)parts.push("Some county feeds don't mark which sales were arm's-length, so check comps for family or foreclosure sales.");
