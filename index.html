@@ -991,8 +991,10 @@ window.addEventListener('hashchange',function(){setTimeout(function(){map.invali
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-view="comps"]');if(b)setTimeout(function(){map.invalidateSize()},60)});
 
 /* ---------- network ---------- */
-function post(url,params){
-  return fetch(url,{method:'POST',body:new URLSearchParams(params)}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+function post(url,params,ms){
+  var ac=ms&&window.AbortController?new AbortController():null,tm=ac?setTimeout(function(){ac.abort()},ms):0;
+  return fetch(url,{method:'POST',body:new URLSearchParams(params),signal:ac?ac.signal:undefined}).catch(function(e){throw new Error(e&&e.name==='AbortError'?'no answer':(e&&e.message)||'network error')})
+    .then(function(r){clearTimeout(tm);return r}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
     .then(function(j){if(j&&j.error)throw new Error(j.error.message||'Service error');return j});
 }
 function getJ(url,params){
@@ -1046,21 +1048,29 @@ function stateAt(points){
       .then(function(j){out=out.concat((j.features||[]).map(normFeature))});
   }}),3).then(function(){return out});
 }
+function cleanCounty(v){v=trimS(v).replace(/\s+County$/i,'').toLowerCase();if(!v)return '';
+  var k=Object.keys(COUNTY).map(function(n){return COUNTY[n]}).filter(function(n){return n.toLowerCase()===v||n.toLowerCase().replace(/[^a-z]/g,'')===v.replace(/[^a-z]/g,'')})[0];return k||''}
+/* The county for a tapped spot, from the free Esri reverse geocoder. Used to start the county feed before, or without, the state roll. */
+function countyOf(pt){
+  if(pt.county)return Promise.resolve(pt.county);
+  return getJ(GEOCODER.replace('findAddressCandidates','reverseGeocode'),{location:pt.lon+','+pt.lat,f:'json'})
+    .then(function(j){pt.county=cleanCounty(j.address&&j.address.Subregion);return pt.county}).catch(function(){return ''});
+}
 function geocode(q){
   var m=q.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
   if(m)return Promise.resolve({lat:+m[1],lon:+m[2],label:q.trim()});
-  var u=GEOCODER+'?'+new URLSearchParams({SingleLine:q,f:'json',maxLocations:'1',countryCode:'USA',searchExtent:'-87.7,24.3,-79.8,31.1',outFields:'Match_addr'});
+  var u=GEOCODER+'?'+new URLSearchParams({SingleLine:q,f:'json',maxLocations:'1',countryCode:'USA',searchExtent:'-87.7,24.3,-79.8,31.1',outFields:'Match_addr,Subregion'});
   return fetch(u).then(function(r){return r.json()}).then(function(j){
-    var c=j&&j.candidates&&j.candidates[0];if(!c||c.score<75)throw new Error('nomatch');return {lat:c.location.y,lon:c.location.x,label:c.address};
+    var c=j&&j.candidates&&j.candidates[0];if(!c||c.score<75)throw new Error('nomatch');return {lat:c.location.y,lon:c.location.x,label:c.address,county:cleanCounty(c.attributes&&c.attributes.Subregion)};
   }).catch(function(){
-    var u2=NOMINATIM+'?'+new URLSearchParams({format:'jsonv2',limit:'1',countrycodes:'us',viewbox:'-87.7,31.1,-79.8,24.3',bounded:'1',q:q});
-    return fetch(u2).then(function(r){return r.json()}).then(function(a){if(!a||!a.length)throw new Error('nomatch');return {lat:+a[0].lat,lon:+a[0].lon,label:a[0].display_name}});
+    var u2=NOMINATIM+'?'+new URLSearchParams({format:'jsonv2',limit:'1',countrycodes:'us',viewbox:'-87.7,31.1,-79.8,24.3',bounded:'1',addressdetails:'1',q:q});
+    return fetch(u2).then(function(r){return r.json()}).then(function(a){if(!a||!a.length)throw new Error('nomatch');return {lat:+a[0].lat,lon:+a[0].lon,label:a[0].display_name,county:cleanCounty(a[0].address&&a[0].address.county)}});
   });
 }
 function geomParams(pt,dist,units){return {geometry:pt.lon+','+pt.lat,geometryType:'esriGeometryPoint',inSR:'4326',spatialRel:'esriSpatialRelIntersects',distance:String(dist),units:units,outSR:'4326',f:'json'}}
 function findSubject(pt){
   var p=Object.assign(geomParams(pt,80,'esriSRUnit_Foot'),{where:'1=1',outFields:FIELDS,returnGeometry:'true',geometryPrecision:'6',resultRecordCount:'25'});
-  return post(LAYER,p).then(function(j){
+  return post(LAYER,p,25000).then(function(j){
     var recs=(j.features||[]).map(normFeature).filter(function(r){return r.lat!=null});
     if(!recs.length)return null;
     var hit=recs.filter(function(r){return pointInRings(pt,r.rings)})[0];
@@ -1077,9 +1087,9 @@ function fetchSales(pt,onProgress){
   /* The state service sometimes fails a heavy first query and then answers the same one quickly, so each page gets two more tries, smaller each time. */
   function page(off,tries){
     var p=Object.assign({},base,{resultOffset:String(off),resultRecordCount:String(size)});if(!useCentroid)delete p.returnCentroid;
-    return post(LAYER,p).then(function(j){return {j:j}},function(err){
-        if((tries||0)>=2)throw err;
-        if(off===0&&useCentroid&&tries===1)useCentroid=false;
+    return post(LAYER,p,30000).then(function(j){return {j:j}},function(err){
+        if((tries||0)>=1)throw err;
+        if(off===0)useCentroid=false;
         size=Math.max(500,size/2);return wait(1500).then(function(){return {retry:1}})})
       .then(function(r){if(r.retry)return page(off,(tries||0)+1);var j=r.j,f=j.features||[];all=all.concat(f.map(normFeature));if(onProgress)onProgress(all.length);
         if(j.exceededTransferLimit&&f.length&&all.length<12000)return page(off+f.length,0);return all});
@@ -1096,11 +1106,13 @@ function runAt(pt){
   L.circleMarker([pt.lat,pt.lon],{radius:9,color:'#fff',weight:3,fillColor:'#E8A33D',fillOpacity:1}).addTo(gSubject);
   map.setView([pt.lat,pt.lon],15);
   var subjP=findSubject(pt).catch(function(){return null});
-  var salesP=fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')});
+  S.stateErr=null;
+  var salesP=fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')}).catch(function(e){S.stateErr=e;return []});
   var countyP={};
   function startCounty(c){if(c&&COUNTY_SOURCES[c]&&!countyP[c])countyP[c]=fetchCounty(c,pt).catch(function(e){return {county:c,err:e}})}
   subjP.then(function(s){if(s)startCounty(s.county)});
-  Promise.all([subjP,salesP]).then(function(res){
+  var cntP=countyOf(pt).then(function(c){startCounty(c)});
+  Promise.all([subjP,salesP,cntP]).then(function(res){
     S.subject=res[0];var recs=res[1],seen={};
     if(S.subject&&S.subject.county)seen[S.subject.county]=1;
     recs.forEach(function(r){if(r.county)seen[r.county]=1});
@@ -1108,7 +1120,7 @@ function runAt(pt){
     S.noFeed=Object.keys(seen).filter(function(c){return !COUNTY_SOURCES[c]}).sort();
     var keys=Object.keys(countyP).sort();S.sources={};
     S.newest=null;recs.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
-    if(!keys.length)return recs;
+    if(!keys.length){if(S.stateErr)throw S.stateErr;return recs}
     status('Loading recent sales from the '+keys.join(' and ')+' County appraiser'+(keys.length>1?'s':'')+'…');
     var late=function(k){return new Promise(function(res){setTimeout(function(){res({county:k,err:new Error('timeout'),late:true})},30000)})};
     return Promise.all(keys.map(function(k){return Promise.race([countyP[k],late(k)])})).then(function(results){
@@ -1118,8 +1130,8 @@ function runAt(pt){
         var nw=null;r.recs.forEach(function(c){if(!nw||saleKey(c)>saleKey(nw))nw=c});
         S.sources[r.county]={ok:true,name:r.src.name,n:r.recs.length,newest:nw?{sy:nw.sy,sm:nw.sm,sd:nw.sd}:null};crecs=crecs.concat(r.recs);
       });
-      if(!crecs.length)return recs;
-      var miss=unmatchedCounty(recs,crecs);
+      if(!crecs.length){if(S.stateErr)throw S.stateErr;return recs}
+      var miss=S.stateErr?[]:unmatchedCounty(recs,crecs);
       if(miss.length)status('Matching '+n0(crecs.length)+' county sales to parcel details…');
       return (miss.length?stateAt(miss.slice(0,3000)).catch(function(){return []}):Promise.resolve([])).then(function(extra){return mergeCounty(recs,crecs,extra)});
     });
@@ -1131,7 +1143,8 @@ function runAt(pt){
     var a=autoPick(S.all,S.subject,5);S.auto=a;
     a.picked.forEach(function(c){S.checked[c.id]=true});
     F.radius=a.radius;F.months=a.months;F.type='same';F.qual='arms';saveF();syncFilterUI(); // show the filters the auto pick used, so its picks are on screen
-    status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
+    if(S.stateErr)status("The Florida tax roll isn't answering right now, so this shows only the county appraiser's sales from the last 12 months, without the property's own details. Search again in a few minutes for the full picture.",'warn');
+    else status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
     render();sendToCalc();
   }).catch(function(err){
     status("Couldn't load the Florida parcel records ("+(err&&err.message||'network error')+"). Check your connection and try again.",'bad');
@@ -1190,7 +1203,7 @@ function render(){
       s.sqft?'<span>Living area <b>'+n0(s.sqft)+' sqft</b></span>':'',s.yr?'<span>Built <b>'+s.yr+'</b></span>':'',
       s.acres?'<span>Lot <b>'+acresTxt(s.acres)+' ac</b></span>':'',s.jv?'<span>County just value <b>'+m0(s.jv)+'</b></span>':'',
       s.price&&s.sy?'<span>Last sale <b>'+m0(s.price)+', '+when(s)+'</b></span>':'',s.owner?'<span>Owner <b>'+esc(s.owner)+'</b></span>':'',
-      s.county?'<span>County <b>'+esc(s.county)+'</b></span>':''].join(''):'<span>No parcel record found at this spot, so comps are not matched by size or type.</span>';
+      s.county?'<span>County <b>'+esc(s.county)+'</b></span>':''].join(''):(S.stateErr?"<span>The property's own record couldn't be loaded just now, so comps are not matched by size or type.</span>":'<span>No parcel record found at this spot, so comps are not matched by size or type.</span>');
     sp.innerHTML='<div class="subj">'+head+'<div class="facts">'+facts+'</div></div>';
   }
   var list=visible(), ch=chosen(list), av=averages(ch,s), land=isLandSubject(s)||F.type==='land';
