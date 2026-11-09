@@ -239,7 +239,7 @@ body.lock{overflow:hidden}
         <div class="avgbar" id="c-avg" hidden></div>
         <div id="c-list" class="clist"><p class="note">Enter an address to see nearby sales.</p></div>
       </div>
-      <p class="note" id="c-data">Sales and buyers come from the Florida Department of Revenue tax roll, published through the Florida Geographic Information Office. The buyer shown is the current owner of record, which is usually the buyer in the most recent sale. Sale dates are by month.</p>
+      <p class="note" id="c-data">Recent sales come from free public data published by the county property appraisers in Miami-Dade, Orange, Hillsborough, Pinellas, Lee, Volusia, Sarasota, Collier, Marion, Lake, Hernando and Highlands counties. Older sales, and every other county, come from the Florida Department of Revenue tax roll, published through the Florida Geographic Information Office. Each sale shows which one it came from. The buyer shown is the buyer on the deed where the county lists one, otherwise the current owner of record. Lee and Marion list sale dates by month, and the state roll does too.</p>
     </div>
   </section>
 
@@ -690,7 +690,7 @@ var GROUP_ORDER=['sfr','condo','mobile','multi','land'];
 function trimS(v){return v==null?'':String(v).trim()}
 function useCode(s){var n=parseInt(trimS(s),10);return isNaN(n)?-1:n}
 function groupOf(code){for(var i=0;i<GROUP_ORDER.length;i++){if(GROUPS[GROUP_ORDER[i]].codes.indexOf(code)>=0)return GROUP_ORDER[i]}return 'other'}
-function isArms(q){q=trimS(q);return q==='01'||q==='02'||q==='1'||q==='2'}
+function isArms(q){q=trimS(q).toUpperCase();return q==='01'||q==='02'||q==='1'||q==='2'||q==='Q'||q==='?'}
 function milesBetween(a,b){var R=3958.8,t=Math.PI/180,dLat=(b.lat-a.lat)*t,dLon=(b.lon-a.lon)*t;
   var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(a.lat*t)*Math.cos(b.lat*t)*Math.sin(dLon/2)*Math.sin(dLon/2);return 2*R*Math.asin(Math.min(1,Math.sqrt(h)))}
 function ringCentroid(rings){if(!rings||!rings.length||!rings[0].length)return null;var r=rings[0],x=0,y=0;for(var i=0;i<r.length;i++){x+=r[i][0];y+=r[i][1]}return {lon:x/r.length,lat:y/r.length}}
@@ -708,7 +708,7 @@ function normFeature(f){
     addr:trimS(a.PHY_ADDR1),city:trimS(a.PHY_CITY),zip:a.PHY_ZIPCD?String(Math.round(+a.PHY_ZIPCD)).padStart(5,'0'):'',
     owner:trimS(a.OWN_NAME),sqft:+a.TOT_LVG_AR||0,yr:+a.ACT_YR_BLT||0,acres:acres,jv:+a.JV||0,
     price:+a.SALE_PRC1||0,sy:+a.SALE_YR1||0,sm:isNaN(sm)?0:sm,qual:trimS(a.QUAL_CD1),vi:trimS(a.VI_CD1).toUpperCase(),
-    roll:+a.ASMNT_YR||0,lat:c?c.lat:null,lon:c?c.lon:null,rings:rings};
+    roll:+a.ASMNT_YR||0,lat:c?c.lat:null,lon:c?c.lon:null,rings:rings,sd:0,src:'state'};
 }
 function monthsAgo(rec,now){if(!rec.sy||!rec.sm)return -1;return (now.getFullYear()*12+now.getMonth()+1)-(rec.sy*12+rec.sm)}
 
@@ -778,6 +778,159 @@ function averages(list,subject){
   return out;
 }
 </script>
+<script id="comps-county">
+/* ---------- county appraiser sales feeds (free, public ArcGIS layers that allow browser access) ---------- */
+/* Each source maps one feature to a partial sale record. The state tax roll fills in what a county leaves out. */
+function csDateMs(ms){if(ms==null||!isFinite(+ms)||+ms<=0)return null;var t=new Date(+ms+12*3600e3);return {y:t.getUTCFullYear(),m:t.getUTCMonth()+1,d:t.getUTCDate()}}
+function csDateYmd(v){var s=trimS(v).replace(/\D/g,'');if(s.length<8)return null;return {y:+s.slice(0,4),m:+s.slice(4,6),d:+s.slice(6,8)}}
+function csDateMdy(v){var m=trimS(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?{y:+m[3],m:+m[1],d:+m[2]}:null}
+function csDateYm(y,m){y=+y;m=+m;return y>1900&&m>=1&&m<=12?{y:y,m:m,d:0}:null}
+function csCode(v){var s=trimS(v);if(!s)return -1;if(/^\d{4}$/.test(s))return parseInt(s.slice(0,2),10);var n=parseInt(s,10);return isNaN(n)?-1:n}
+function csNum(v){if(v==null)return 0;var n=parseFloat(String(v).replace(/[^0-9.\-]/g,''));return isFinite(n)?n:0}
+function csIso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function csYmdNum(d){return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate()}
+function csYears(cut,now){var a=[];for(var y=cut.getFullYear();y<=now.getFullYear();y++)a.push(y);return a}
+function csQ(v){v=trimS(v).toUpperCase();return v==='Q'?'Q':v?'U':'?'}
+
+var COUNTY_SOURCES={
+  'Miami-Dade':{name:'Miami-Dade County Property Appraiser',pts:true,
+    url:'https://services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/PaGISView_gdb/FeatureServer/0',
+    fields:'FOLIO,TRUE_SITE_ADDR,TRUE_SITE_CITY,TRUE_OWNER1,DOR_CODE_CUR,BUILDING_HEATED_AREA,YEAR_BUILT,LOT_SIZE,DOS_1,PRICE_1,DATEOFSALE_UTC',
+    date:function(c,n){return "DATEOFSALE_UTC >= DATE '"+csIso(c)+"' AND DATEOFSALE_UTC <= DATE '"+csIso(n)+"'"},price:'PRICE_1',
+    map:function(a){return {pid:a.FOLIO,addr:a.TRUE_SITE_ADDR,city:a.TRUE_SITE_CITY,owner:a.TRUE_OWNER1,price:a.PRICE_1,date:csDateYmd(a.DOS_1)||csDateMs(a.DATEOFSALE_UTC),
+      code:csCode(a.DOR_CODE_CUR),sqft:a.BUILDING_HEATED_AREA,yr:a.YEAR_BUILT,acres:csNum(a.LOT_SIZE)/43560}}},
+  'Orange':{name:'Orange County Property Appraiser',pts:true,
+    url:'https://vgispublic.ocpafl.org/server/rest/services/DYNAMIC/Dynamic_Layers/MapServer/14',
+    fields:'PARCEL,INSTR_NUM,SALE_DATE,SALE_AMT,DEED_CODE,VAC_IMPR_CODE,DOR_CODE,GRANTEE,AYB,LIVING_AREA,SITUS,ZIP_CITY,GIS_AREA',
+    date:function(c,n){return "SALE_DATE >= DATE '"+csIso(c)+"' AND SALE_DATE <= DATE '"+csIso(n)+"'"},price:'SALE_AMT',
+    map:function(a){var dc=trimS(a.DEED_CODE).toUpperCase(),q='?';
+      if(/^Q|^CT|^TD|^CO/.test(dc))q='U';else if(dc.length===2&&dc[1]==='M')q='M';
+      var city=trimS(a.ZIP_CITY);if(/UNINC/i.test(city))city='';
+      return {pid:a.PARCEL,addr:a.SITUS,city:city,owner:a.GRANTEE,price:a.SALE_AMT,date:csDateMs(a.SALE_DATE),code:csCode(a.DOR_CODE),
+        sqft:a.LIVING_AREA,yr:a.AYB,acres:csNum(a.GIS_AREA)/43560,vi:a.VAC_IMPR_CODE,qual:q,deal:a.INSTR_NUM}}},
+  'Hillsborough':{name:'Hillsborough County Property Appraiser',
+    url:'https://gis.hcpafl.org/arcgis/rest/services/Webmaps/HillsboroughFL_WebParcels/MapServer/0',
+    fields:'folio,Owner1,TopSaleDate,TopSalePrice,StreetLabel,SiteCity',
+    date:function(c){return "TopSaleDate >= '"+csIso(c)+"'"},price:'TopSalePrice',
+    map:function(a){var d=csDateYmd(a.TopSaleDate);return {pid:a.folio,addr:a.StreetLabel,city:a.SiteCity,owner:a.Owner1,price:a.TopSalePrice,date:d}}},
+  'Pinellas':{name:'Pinellas County Property Appraiser',pts:true,
+    url:'https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/SalesCurrentYear/MapServer/0',
+    fields:'STRAP,SALE_PRICE,DOS,QUALIFIED_FLG,USE_CD,TOTAL_LIVING_SQFT_DISPLAY',
+    date:function(c,n){return "DOS >= DATE '"+csIso(c)+"' AND DOS <= DATE '"+csIso(n)+"'"},price:'SALE_PRICE',
+    map:function(a){return {pid:a.STRAP,price:a.SALE_PRICE,date:csDateMs(a.DOS),qual:csQ(a.QUALIFIED_FLG),code:csCode(a.USE_CD),sqft:csNum(a.TOTAL_LIVING_SQFT_DISPLAY),noOwner:true}}},
+  'Lee':{name:'Lee County Property Appraiser',
+    url:'https://gissvr.leepa.org/gissvr/rest/services/ParcelInfo/MapServer/23',
+    fields:'FOLIOID,SaleYear,SaleMonth,SalePrice,dorcode,YearBuilt,GrossArea',
+    date:function(c){return "(SaleYear > "+c.getFullYear()+" OR (SaleYear = "+c.getFullYear()+" AND SaleMonth >= "+(c.getMonth()+1)+"))"},
+    map:function(a){return {pid:a.FOLIOID,price:csNum(a.SalePrice),date:csDateYm(a.SaleYear,a.SaleMonth),code:csCode(a.dorcode),yr:a.YearBuilt,sqft:a.GrossArea,noOwner:true}}},
+  'Volusia':{name:'Volusia County Property Appraiser',
+    url:'https://maps5.vcgov.org/arcgis/rest/services/Open_Data/Open_Data_3/FeatureServer/34',
+    fields:'PID,ADDRFULL,CITYNAME,OWNER1,PC,RES_TOTAL_SFLA,CALCACRES,LASTSALEDT,LASTSALEPRICE',
+    date:function(c,n){return "LASTSALEDT >= DATE '"+csIso(c)+"' AND LASTSALEDT <= DATE '"+csIso(n)+"'"},price:'LASTSALEPRICE',
+    map:function(a){return {pid:a.PID,addr:a.ADDRFULL,city:a.CITYNAME,owner:a.OWNER1,price:a.LASTSALEPRICE,date:csDateMs(a.LASTSALEDT),code:csCode(a.PC),sqft:a.RES_TOTAL_SFLA,acres:a.CALCACRES}}},
+  'Sarasota':{name:'Sarasota County Property Appraiser',
+    url:'https://services3.arcgis.com/icrWMv7eBkctFu1f/arcgis/rest/services/ParcelProperty_Scpao/FeatureServer/0',
+    fields:'ID,LOCN,LOCS,LOCT,LOCCITY,NAME1,STCD,LIVING,YRBL,LSQFT,SALE_AMT,SALE_DATE',
+    date:function(c,n){return "SALE_DATE >= DATE '"+csIso(c)+"' AND SALE_DATE <= DATE '"+csIso(n)+"'"},price:'SALE_AMT',
+    map:function(a){return {pid:a.ID,addr:[a.LOCN,a.LOCS,a.LOCT].map(trimS).filter(Boolean).join(' '),city:a.LOCCITY,owner:a.NAME1,price:a.SALE_AMT,date:csDateMs(a.SALE_DATE),
+      code:csCode(a.STCD),sqft:a.LIVING,yr:a.YRBL,acres:csNum(a.LSQFT)/43560}}},
+  'Collier':{name:'Collier County Property Appraiser',
+    url:'https://gmdcmgis.colliercountyfl.gov/server/rest/services/Parcels/MapServer/0',
+    fields:'Folio,OwnerLine1,OwnerLine2,SiteStreetAddress,SiteCity,UseCode,TotalAcres,Sale1Date,Sale1Amount',
+    date:function(c,n){return "Sale1Date >= "+csYmdNum(c)+" AND Sale1Date <= "+csYmdNum(n)},price:'Sale1Amount',
+    map:function(a){var o=trimS(a.OwnerLine1),o2=trimS(a.OwnerLine2);if(o2&&!/\d/.test(o2))o+=' '+o2;
+      return {pid:a.Folio,addr:a.SiteStreetAddress,city:a.SiteCity,owner:o,price:a.Sale1Amount,date:csDateYmd(a.Sale1Date),code:csCode(a.UseCode),acres:a.TotalAcres}}},
+  'Marion':{name:'Marion County Property Appraiser',
+    url:'https://gis.ocalafl.org/arcgis/rest/services/Public/Parcels/FeatureServer/0',
+    fields:'parcel,name,situs_1,mo1,yr1,pr_1,q1,vi1,acres,yrblt1,bld1_sf,pc',
+    date:function(c){return "(yr1 > "+c.getFullYear()+" OR (yr1 = "+c.getFullYear()+" AND mo1 >= "+(c.getMonth()+1)+"))"},price:'pr_1',
+    map:function(a){return {pid:a.parcel,addr:a.situs_1,owner:a.name,price:a.pr_1,date:csDateYm(a.yr1,a.mo1),qual:csQ(a.q1),vi:a.vi1,acres:a.acres,yr:a.yrblt1,sqft:a.bld1_sf,code:csCode(a.pc)}}},
+  'Lake':{name:'Lake County Property Appraiser',
+    url:'https://gis.lakecountyfl.gov/lakegis/rest/services/OpenData/OpenData1/FeatureServer/12',
+    fields:'ParcelNumber,OwnerName,PropertyAddress,LandUseCode,Acres,LastSalePrice,LastSaleDate,YearBuilt',
+    date:function(c,n){return "LastSaleDate >= DATE '"+csIso(c)+"' AND LastSaleDate <= DATE '"+csIso(n)+"'"},price:'LastSalePrice',
+    map:function(a){return {pid:a.ParcelNumber,addr:a.PropertyAddress,owner:a.OwnerName,price:a.LastSalePrice,date:csDateMs(a.LastSaleDate),code:csCode(a.LandUseCode),acres:a.Acres,yr:csNum(a.YearBuilt)}}},
+  'Hernando':{name:'Hernando County Property Appraiser',
+    urls:['https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/SalesByYear/FeatureServer/1','https://services2.arcgis.com/x5zvhhxfUuRDntRe/arcgis/rest/services/SalesByYear/FeatureServer/11'],
+    fields:'PARCEL_NUMBER,SITUS_ADDRESS,SITUS_CITY,OWNER_NAME,LSALE_DATE,LSALE_PRICE,LSALE_QUALCD,LSALE_VORICD,CER_DOR_CODE,STRUCT1_ACT_YEAR,STRUCT1_BASE_SQFT,ACRES',
+    date:function(c,n){return "LSALE_DATE >= DATE '"+csIso(c)+"' AND LSALE_DATE <= DATE '"+csIso(n)+"'"},price:'LSALE_PRICE',
+    map:function(a){return {pid:a.PARCEL_NUMBER,addr:a.SITUS_ADDRESS,city:a.SITUS_CITY,owner:a.OWNER_NAME,price:a.LSALE_PRICE,date:csDateMs(a.LSALE_DATE),
+      qual:csQ(a.LSALE_QUALCD),vi:a.LSALE_VORICD,code:+a.CER_DOR_CODE>0?+a.CER_DOR_CODE:-1,yr:a.STRUCT1_ACT_YEAR,sqft:a.STRUCT1_BASE_SQFT,acres:a.ACRES}}},
+  'Highlands':{name:'Highlands County Property Appraiser',
+    url:'https://gis.highlandsfl.gov/server/rest/services/Layers/PAO_Tax_Parcel/FeatureServer/1',
+    fields:'PARCELNO,SITEADDRESS,Site_Add_C,Owner_Name_1,DOR_Code,Calculated_Acres,Sale_Date_1,Sale_Price_1',
+    date:function(c,n){return '('+csYears(c,n).map(function(y){return "Sale_Date_1 LIKE '%/"+y+"'"}).join(' OR ')+')'},price:'Sale_Price_1',
+    map:function(a){return {pid:a.PARCELNO,addr:a.SITEADDRESS,city:a.Site_Add_C,owner:a.Owner_Name_1,price:a.Sale_Price_1,date:csDateMdy(a.Sale_Date_1),code:csCode(a.DOR_Code),acres:a.Calculated_Acres}}}
+};
+
+/* Turn one county feature into a sale record (null when it has no usable sale). */
+function normCounty(county,src,f){
+  var a=f.attributes||{},m=src.map(a);if(!m||!m.date)return null;
+  var g=f.geometry||{},lat=null,lon=null,rings=null;
+  if(isFinite(g.x)&&isFinite(g.y)){lon=g.x;lat=g.y}else if(g.rings){var c=ringCentroid(g.rings);if(c){lon=c.lon;lat=c.lat}rings=g.rings}
+  if(lat==null)return null;
+  var code=m.code==null?-1:m.code, pid=trimS(m.pid);
+  return {id:'C:'+county+':'+pid,cid:pid.replace(/[^0-9A-Za-z]/g,'').toUpperCase(),county:county,code:code,group:code>=0?groupOf(code):'other',
+    addr:trimS(m.addr),city:trimS(m.city),zip:'',owner:trimS(m.owner),sqft:csNum(m.sqft),yr:csNum(m.yr)>1800?csNum(m.yr):0,acres:csNum(m.acres),jv:0,
+    price:csNum(m.price),sy:m.date.y,sm:m.date.m,sd:m.date.d||0,qual:m.qual||'?',vi:trimS(m.vi).toUpperCase(),deal:trimS(m.deal),
+    roll:0,lat:lat,lon:lon,rings:rings,src:'county',srcName:src.name,noOwner:!!m.noOwner};
+}
+function saleKey(r){return (r.sy||0)*10000+(r.sm||0)*100+(r.sd||0)}
+function sameMonth(a,b){return a.sy===b.sy&&a.sm===b.sm}
+
+/* Mark sales that were one deed covering several parcels; their price is for the whole group. */
+function flagMultiParcel(recs){
+  var by={};recs.forEach(function(r){var k=r.county+'|'+(r.deal||(r.sy+'-'+r.sm+'-'+r.sd+'|'+Math.round(r.price)));(by[k]=by[k]||{})[r.cid]=1});
+  recs.forEach(function(r){var k=r.county+'|'+(r.deal||(r.sy+'-'+r.sm+'-'+r.sd+'|'+Math.round(r.price)));if(Object.keys(by[k]).length>1)r.qual='M'});
+  return recs;
+}
+
+/* Spatial index over state parcels so each county sale can find the parcel it sits in. */
+var CELL=0.004;
+function buildIndex(recs){
+  var grid={},ids={};
+  recs.forEach(function(r){
+    if(r.id)ids[trimS(r.id).replace(/[^0-9A-Za-z]/g,'').toUpperCase()]=r;
+    if(!r.rings)return;var x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+    r.rings.forEach(function(rg){rg.forEach(function(p){if(p[0]<x0)x0=p[0];if(p[0]>x1)x1=p[0];if(p[1]<y0)y0=p[1];if(p[1]>y1)y1=p[1]})});
+    for(var i=Math.floor(x0/CELL);i<=Math.floor(x1/CELL);i++)for(var j=Math.floor(y0/CELL);j<=Math.floor(y1/CELL);j++){var k=i+':'+j;(grid[k]=grid[k]||[]).push(r)}
+  });
+  return {grid:grid,ids:ids};
+}
+function findParcel(idx,c){
+  if(c.cid&&idx.ids[c.cid])return idx.ids[c.cid];
+  var cand=idx.grid[Math.floor(c.lon/CELL)+':'+Math.floor(c.lat/CELL)]||[],pt={lat:c.lat,lon:c.lon};
+  for(var i=0;i<cand.length;i++)if(pointInRings(pt,cand[i].rings))return cand[i];
+  return null;
+}
+
+/* Combine state roll records with county sales: one record per parcel, newest sale wins. */
+function mergeCounty(stateRecs,countyRecs,extraState){
+  var idx=buildIndex(stateRecs.concat(extraState||[]));
+  var out={},order=[];
+  stateRecs.forEach(function(r){if(!out[r.id]){out[r.id]=r;order.push(r.id)}});
+  var best={};
+  countyRecs.forEach(function(c){
+    var p=findParcel(idx,c),m;
+    if(p){
+      var same=p.sy&&sameMonth(p,c)&&Math.abs((p.price||0)-c.price)<=Math.max(1000,0.02*c.price);
+      m=Object.assign({},p,{price:c.price,sy:c.sy,sm:c.sm,sd:c.sd,src:'county',srcName:c.srcName,deal:c.deal,
+        owner:c.owner||(same?p.owner:''),noOwner:!c.owner&&!same,
+        qual:c.qual!=='?'?c.qual:(same?p.qual:'?'),vi:c.vi||(same?p.vi:''),
+        sqft:p.sqft||c.sqft,yr:p.yr||c.yr,acres:p.acres||c.acres,code:p.code>=0?p.code:c.code,
+        addr:p.addr||c.addr,city:p.city||c.city});
+      m.group=m.code>=0?groupOf(m.code):'other';
+      var st=out[p.id];
+      if(st&&st.src!=='county'&&saleKey(st)>saleKey(c)&&!sameMonth(st,c))return; // state roll already has a newer sale
+    }else m=c;
+    if(!best[m.id]||saleKey(m)>saleKey(best[m.id]))best[m.id]=m;
+  });
+  Object.keys(best).forEach(function(id){if(!out[id])order.push(id);out[id]=best[id]});
+  return order.map(function(id){return out[id]});
+}
+/* County sales that don't sit in any of the state parcels already loaded. */
+function unmatchedCounty(stateRecs,countyRecs){var idx=buildIndex(stateRecs);return countyRecs.filter(function(c){return !findParcel(idx,c)})}
+</script>
 <script>
 (function(){
 var LAYER='https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query';
@@ -791,14 +944,16 @@ var usd0=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumF
 function m0(x){return usd0.format(Math.round(x||0))}
 function n0(x){return Math.round(x||0).toLocaleString('en-US')}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-function when(c){return c.sm&&c.sy?MONTHS[c.sm-1]+' '+c.sy:'Unknown date'}
+function when(c){return c.sm&&c.sy?MONTHS[c.sm-1]+' '+(c.sd?c.sd+', ':'')+c.sy:'Unknown date'}
+function srcLabel(c){return c.src==='county'?'County appraiser':'State tax roll'}
+function buyerTxt(c){return c.owner||(c.noOwner?'Not in the county feed yet':'Not listed')}
 function acresTxt(a){return a>=10?n0(a):(Math.round(a*100)/100).toString()}
 function addrLine(c){return [c.addr||'No street address',c.city].filter(Boolean).join(', ')}
 
 var F={radius:0.5,months:6,type:'same',qual:'arms',minp:10000,sqmin:0,sqmax:0,yrmin:0,yrmax:0,acmin:0,acmax:0,sort:'dist',lastAddr:''};
 try{var sv=JSON.parse(localStorage.getItem(KEY)||'null');if(sv&&typeof sv==='object')for(var k in F){if(k in sv)F[k]=sv[k]}}catch(e){}
 function saveF(){try{localStorage.setItem(KEY,JSON.stringify(F))}catch(e){}}
-var S={pt:null,subject:null,all:[],checked:{},auto:null,newest:null,busy:false};
+var S={pt:null,subject:null,all:[],checked:{},auto:null,newest:null,sources:{},noFeed:[],busy:false};
 
 /* ---------- map ---------- */
 var map=L.map('c-map',{zoomControl:true,tap:true}).setView([27.9,-81.6],7);
@@ -837,6 +992,43 @@ document.addEventListener('click',function(e){var b=e.target.closest&&e.target.c
 function post(url,params){
   return fetch(url,{method:'POST',body:new URLSearchParams(params)}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
     .then(function(j){if(j&&j.error)throw new Error(j.error.message||'Service error');return j});
+}
+function getJ(url,params){
+  return fetch(url+'?'+new URLSearchParams(params)).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+    .then(function(j){if(j&&j.error)throw new Error(j.error.message||'Service error');return j});
+}
+function pool(tasks,n){var i=0;return new Promise(function(res){var a=0;function nx(){if(i>=tasks.length){if(!a)res();return}var t=tasks[i++];a++;t().catch(function(){}).then(function(){a--;nx()})}if(!tasks.length)res();for(var k=0;k<n;k++)nx()})}
+/* Recent sales within 2 miles from one county appraiser feed (last 12 months). */
+function fetchCounty(county,pt){
+  var src=COUNTY_SOURCES[county];
+  var now=new Date(),cut=new Date(now.getFullYear(),now.getMonth()-12,1),tom=new Date(now.getTime()+864e5),today=saleKey({sy:now.getFullYear(),sm:now.getMonth()+1,sd:now.getDate()});
+  var dateW=src.date(cut,tom);
+  function one(url){
+    var usePrice=!!src.price,all=[];
+    var base=Object.assign(geomParams(pt,2,'esriSRUnit_StatuteMile'),{outFields:src.fields,returnGeometry:'true',geometryPrecision:'5',orderByFields:'OBJECTID',resultRecordCount:'2000'});
+    if(!src.pts)base.maxAllowableOffset='0.00005';
+    function page(off){
+      var p=Object.assign({},base,{where:usePrice?dateW+' AND '+src.price+' >= 1000':dateW});if(off)p.resultOffset=String(off);
+      return getJ(url+'/query',p).catch(function(err){if(off===0&&usePrice){usePrice=false;p.where=dateW;return getJ(url+'/query',p)}throw err})
+        .then(function(j){var f=j.features||[];all=all.concat(f);if(j.exceededTransferLimit&&f.length&&all.length<8000)return page(off+f.length);return all});
+    }
+    return page(0);
+  }
+  return Promise.all((src.urls||[src.url]).map(one)).then(function(lists){
+    var recs=[].concat.apply([],lists).map(function(f){return normCounty(county,src,f)})
+      .filter(function(r){return r&&r.price>=1000&&saleKey(r)<=today&&saleKey(r)>=saleKey({sy:cut.getFullYear(),sm:cut.getMonth()+1,sd:0})});
+    return {county:county,src:src,recs:flagMultiParcel(recs)};
+  });
+}
+/* State parcel records for county sales on parcels that have no recent sale in the state roll. */
+function stateAt(points){
+  var out=[],batches=[];for(var i=0;i<points.length;i+=150)batches.push(points.slice(i,i+150));
+  return pool(batches.map(function(b){return function(){
+    var geom={points:b.map(function(c){return [+c.lon.toFixed(6),+c.lat.toFixed(6)]}),spatialReference:{wkid:4326}};
+    return post(LAYER,{geometry:JSON.stringify(geom),geometryType:'esriGeometryMultipoint',inSR:'4326',spatialRel:'esriSpatialRelIntersects',where:'1=1',outFields:FIELDS,
+      returnGeometry:'true',geometryPrecision:'6',maxAllowableOffset:'0.00001',outSR:'4326',resultRecordCount:'2000',f:'json'})
+      .then(function(j){out=out.concat((j.features||[]).map(normFeature))});
+  }}),3).then(function(){return out});
 }
 function geocode(q){
   var m=q.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
@@ -884,11 +1076,36 @@ function runAt(pt){
   map.setView([pt.lat,pt.lon],15);
   var subjP=findSubject(pt).catch(function(){return null});
   var salesP=fetchSales(pt,function(n){status('Loading sales within 2 miles… '+n.toLocaleString('en-US')+' so far')});
+  var countyP={};
+  function startCounty(c){if(c&&COUNTY_SOURCES[c]&&!countyP[c])countyP[c]=fetchCounty(c,pt).catch(function(e){return {county:c,err:e}})}
+  subjP.then(function(s){if(s)startCounty(s.county)});
   Promise.all([subjP,salesP]).then(function(res){
-    S.subject=res[0];var recs=res[1];
-    var now=new Date();
-    S.all=enrich(recs,pt,now,S.subject?S.subject.id:'');
-    S.newest=null;S.all.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
+    S.subject=res[0];var recs=res[1],seen={};
+    if(S.subject&&S.subject.county)seen[S.subject.county]=1;
+    recs.forEach(function(r){if(r.county)seen[r.county]=1});
+    Object.keys(seen).forEach(startCounty);
+    S.noFeed=Object.keys(seen).filter(function(c){return !COUNTY_SOURCES[c]}).sort();
+    var keys=Object.keys(countyP).sort();S.sources={};
+    S.newest=null;recs.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
+    if(!keys.length)return recs;
+    status('Loading recent sales from the '+keys.join(' and ')+' County appraiser'+(keys.length>1?'s':'')+'…');
+    return Promise.all(keys.map(function(k){return countyP[k]})).then(function(results){
+      var crecs=[];
+      results.forEach(function(r){
+        if(r.err){S.sources[r.county]={ok:false,name:COUNTY_SOURCES[r.county].name};return}
+        var nw=null;r.recs.forEach(function(c){if(!nw||saleKey(c)>saleKey(nw))nw=c});
+        S.sources[r.county]={ok:true,name:r.src.name,n:r.recs.length,newest:nw?{sy:nw.sy,sm:nw.sm,sd:nw.sd}:null};crecs=crecs.concat(r.recs);
+      });
+      if(!crecs.length)return recs;
+      var miss=unmatchedCounty(recs,crecs);
+      if(miss.length)status('Matching '+n0(crecs.length)+' county sales to parcel details…');
+      return (miss.length?stateAt(miss.slice(0,3000)).catch(function(){return []}):Promise.resolve([])).then(function(extra){return mergeCounty(recs,crecs,extra)});
+    });
+  }).then(function(recs){
+    var now=new Date(),s=S.subject;
+    if(s){var mine=recs.filter(function(r){return r.id===s.id&&r.src==='county'})[0];
+      if(mine&&saleKey(mine)>=saleKey(s)){s.price=mine.price;s.sy=mine.sy;s.sm=mine.sm;s.sd=mine.sd;s.src='county';if(mine.owner)s.owner=mine.owner}}
+    S.all=enrich(recs,pt,now,s?s.id:'');
     var a=autoPick(S.all,S.subject,5);S.auto=a;
     a.picked.forEach(function(c){S.checked[c.id]=true});
     F.radius=a.radius;F.months=a.months;saveF();syncFilterUI();
@@ -926,12 +1143,22 @@ function numIn(id){var n=parseFloat(String($(id).value).replace(/[^0-9.]/g,''));
 ['c-type','c-qual','c-sort'].forEach(function(id){$(id).addEventListener('change',function(){F[id.slice(2)]=$(id).value;saveF();render();sendToCalc()})});
 
 /* ---------- render ---------- */
+function sourceNote(){
+  var parts=[],stateTxt=S.newest?MONTHS[S.newest.sm-1]+' '+S.newest.sy:'';
+  Object.keys(S.sources).forEach(function(k){var x=S.sources[k];
+    if(x.ok)parts.push('Sales from the last 12 months in '+k+' County come straight from the '+x.name+(x.newest?' (newest sale '+when(x.newest)+')':'')+'.');
+    else parts.push("The "+x.name+" feed didn't load just now, so "+k+" County sales here come from the state tax roll only. Search again to retry.")});
+  if(S.noFeed.length)parts.push(S.noFeed.join(', ')+' County '+(S.noFeed.length>1?"don't":"doesn't")+' publish a sales feed this page can read, so '+(S.noFeed.length>1?'their':'its')+' sales come from the state tax roll'+(stateTxt?', which runs through '+stateTxt:'')+' and is updated about once a year.');
+  else if(stateTxt)parts.push('Older sales come from the state tax roll'+(Object.keys(S.sources).length?'':', which runs through '+stateTxt+' and is updated about once a year')+'.');
+  if(Object.keys(S.sources).length)parts.push("Some county feeds don't mark which sales were arm's-length, so check comps for family or foreclosure sales.");
+  return parts.join(' ');
+}
 function visible(){var f=filt();var list=S.all.filter(function(c){return passes(c,f,S.subject)});
-  var srt={dist:function(a,b){return a.dist-b.dist},new:function(a,b){return a.ago-b.ago||a.dist-b.dist},price:function(a,b){return b.price-a.price},ppsf:function(a,b){return b.ppsf-a.ppsf}}[F.sort]||function(a,b){return a.dist-b.dist};
+  var srt={dist:function(a,b){return a.dist-b.dist},new:function(a,b){return saleKey(b)-saleKey(a)||a.dist-b.dist},price:function(a,b){return b.price-a.price},ppsf:function(a,b){return b.ppsf-a.ppsf}}[F.sort]||function(a,b){return a.dist-b.dist};
   return list.sort(srt)}
 function chosen(list){return list.filter(function(c){return S.checked[c.id]})}
 function popupHtml(c){return '<b>'+esc(addrLine(c))+'</b><br>'+m0(c.price)+' · sold '+when(c)+'<br>'+
-  (c.sqft?n0(c.sqft)+' sqft · '+(c.ppsf?m0(c.ppsf)+'/sqft · ':''):'')+(c.yr?'built '+c.yr+' · ':'')+(c.acres?acresTxt(c.acres)+' ac · ':'')+c.dist.toFixed(2)+' mi<br>Buyer: '+esc(c.owner||'Not listed')}
+  (c.sqft?n0(c.sqft)+' sqft · '+(c.ppsf?m0(c.ppsf)+'/sqft · ':''):'')+(c.yr?'built '+c.yr+' · ':'')+(c.acres?acresTxt(c.acres)+' ac · ':'')+c.dist.toFixed(2)+' mi<br>Buyer: '+esc(buyerTxt(c))+'<br>Source: '+esc(c.src==='county'?c.srcName:'Florida tax roll')}
 function render(){
   var s=S.subject;
   var sp=$('c-subject');
@@ -940,7 +1167,7 @@ function render(){
     var facts=s?['<span>Type <b>'+esc(s.group==='other'?'Use code '+s.code:GROUPS[s.group].label)+'</b></span>',
       s.sqft?'<span>Living area <b>'+n0(s.sqft)+' sqft</b></span>':'',s.yr?'<span>Built <b>'+s.yr+'</b></span>':'',
       s.acres?'<span>Lot <b>'+acresTxt(s.acres)+' ac</b></span>':'',s.jv?'<span>County just value <b>'+m0(s.jv)+'</b></span>':'',
-      s.price&&s.sy?'<span>Last sale <b>'+m0(s.price)+' in '+when(s)+'</b></span>':'',s.owner?'<span>Owner <b>'+esc(s.owner)+'</b></span>':'',
+      s.price&&s.sy?'<span>Last sale <b>'+m0(s.price)+', '+when(s)+'</b></span>':'',s.owner?'<span>Owner <b>'+esc(s.owner)+'</b></span>':'',
       s.county?'<span>County <b>'+esc(s.county)+'</b></span>':''].join(''):'<span>No parcel record found at this spot, so comps are not matched by size or type.</span>';
     sp.innerHTML='<div class="subj">'+head+'<div class="facts">'+facts+'</div></div>';
   }
@@ -959,7 +1186,7 @@ function render(){
       ['<div class="stat key"><span class="lbl">Average sale price</span><span class="val">'+(av.n?m0(av.avgPrice):'–')+'</span><span class="sub">'+av.n+' comp'+(av.n===1?'':'s')+' ticked · sent to ARV</span></div>',
        '<div class="stat"><span class="lbl">Size-adjusted value</span><span class="val">'+(av.sizeAdj&&resi?m0(av.sizeAdj):'–')+'</span><span class="sub">'+(av.avgPpsf?m0(av.avgPpsf)+'/sqft':'')+(s&&s.sqft&&resi?' × '+n0(s.sqft)+' sqft':'')+'</span></div>'];
     bar.innerHTML=tiles.join('')+'<p class="note" style="grid-column:1/-1">'+esc(note)+' Ticked sales update the cash offer tab. These are sale prices, so check whether the comps were renovated before treating the average as ARV.</p>'+
-      (S.newest?'<p class="note" style="grid-column:1/-1">Newest sale in the state records for this area: '+MONTHS[S.newest.sm-1]+' '+S.newest.sy+'. The records are updated about once a year, so the latest months may not show yet.</p>':'');
+      '<p class="note" style="grid-column:1/-1">'+esc(sourceNote())+'</p>';
   }
   var box=$('c-list');
   if(!S.pt){box.innerHTML='<p class="note">Enter an address to see nearby sales.</p>'}
@@ -968,10 +1195,10 @@ function render(){
     var shown=list.slice(0,250);
     box.innerHTML=shown.map(function(c){var on=!!S.checked[c.id];
       return '<label class="comp'+(on?' on':'')+'"><input type="checkbox" data-pick="'+esc(c.id)+'"'+(on?' checked':'')+' aria-label="Use '+esc(addrLine(c))+' in the average">'+
-        '<div><div class="addr">'+esc(addrLine(c))+'</div><div class="sub">'+esc((c.group==='other'?'Use code '+c.code:GROUPS[c.group].label)+(c.county?' · '+c.county+' County':'')+(isArms(c.qual)?'':' · not arm\'s-length (code '+c.qual+')'))+'</div></div>'+
+        '<div><div class="addr">'+esc(addrLine(c))+'</div><div class="sub">'+esc((c.group==='other'?(c.code>=0?'Use code '+c.code:'Type not listed'):GROUPS[c.group].label)+(c.county?' · '+c.county+' County':'')+' · '+srcLabel(c)+(c.qual==='M'?' · one deed for several parcels':isArms(c.qual)?'':' · not arm\'s-length (code '+c.qual+')'))+'</div></div>'+
         '<div class="price">'+m0(c.price)+'<small>'+when(c)+'</small></div>'+
         '<div class="meta">'+[c.sqft?n0(c.sqft)+' sqft':'',c.ppsf?m0(c.ppsf)+'/sqft':'',c.yr?'built '+c.yr:'',c.acres?acresTxt(c.acres)+' ac':'',c.ppa&&c.acres>=0.5?m0(c.ppa)+'/ac':'',c.dist.toFixed(2)+' mi away'].filter(Boolean).join(' · ')+'</div>'+
-        '<div class="buyer"><span>Buyer:</span> '+esc(c.owner||'Not listed')+'</div>'+
+        '<div class="buyer"><span>Buyer:</span> '+esc(buyerTxt(c))+'</div>'+
         '<div class="acts"><button type="button" class="linkbtn" data-focus="'+esc(c.id)+'">Show on map</button></div></label>';
     }).join('')+(list.length>250?'<p class="note">Showing the first 250 of '+list.length+'. Narrow the filters to see the rest.</p>':'');
   }
