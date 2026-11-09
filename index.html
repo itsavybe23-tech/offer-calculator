@@ -1125,7 +1125,7 @@ function runAt(pt){
     S.all=enrich(recs,pt,now,s?s.id:'');
     var a=autoPick(S.all,S.subject,5);S.auto=a;
     a.picked.forEach(function(c){S.checked[c.id]=true});
-    F.radius=a.radius;F.months=a.months;saveF();syncFilterUI();
+    F.radius=a.radius;F.months=a.months;F.type='same';F.qual='arms';saveF();syncFilterUI(); // show the filters the auto pick used, so its picks are on screen
     status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
     render();sendToCalc();
   }).catch(function(err){
