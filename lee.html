@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><title>lee</title></head><body><pre id="o">running…</pre><script>
+var U='https://gissvr.leepa.org/gissvr/rest/services/ParcelInfo/MapServer/23/query';
+var g={geometry:'-81.98,26.6',geometryType:'esriGeometryPoint',inSR:'4326',spatialRel:'esriSpatialRelIntersects',distance:'2',units:'esriSRUnit_StatuteMile',outSR:'4326',f:'json',
+ where:'(SaleYear > 2025 OR (SaleYear = 2025 AND SaleMonth >= 11))',outFields:'FOLIOID,SaleYear,SaleMonth,SalePrice,dorcode,YearBuilt,GrossArea'};
+var V=[['geom+offset+order',{returnGeometry:'true',maxAllowableOffset:'0.00005',geometryPrecision:'5',orderByFields:'OBJECTID',resultRecordCount:'2000'}],
+['geom+offset noorder',{returnGeometry:'true',maxAllowableOffset:'0.00005',geometryPrecision:'5',resultRecordCount:'2000'}],
+['nogeom noorder',{returnGeometry:'false',resultRecordCount:'2000'}],
+['count only',{returnCountOnly:'true'}],
+['envelope-ish offset 0.001',{returnGeometry:'true',maxAllowableOffset:'0.001',geometryPrecision:'5',resultRecordCount:'2000'}]];
+var out=[];function log(s){out.push(s);document.getElementById('o').textContent=out.join('\n')}
+(function n(i){if(i>=V.length){log('DONE');return}var t=Date.now(),p=Object.assign({},g,V[i][1]);
+ fetch(U+'?'+new URLSearchParams(p)).then(function(r){return r.text()}).then(function(tx){var j=JSON.parse(tx);
+  log(V[i][0]+': '+((Date.now()-t)/1000).toFixed(1)+'s '+(tx.length/1024|0)+'KB feats '+(j.features||[]).length+' count '+j.count+' exceeded '+j.exceededTransferLimit+(j.error?' ERR '+j.error.message:''))}).catch(function(e){log(V[i][0]+' FAIL '+e)}).then(function(){n(i+1)})})(0);
+</script></body></html>

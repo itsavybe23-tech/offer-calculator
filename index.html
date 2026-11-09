@@ -795,7 +795,7 @@ function csQ(v){v=trimS(v).toUpperCase();return v==='Q'?'Q':v?'U':'?'}
 var COUNTY_SOURCES={
   'Miami-Dade':{name:'Miami-Dade County Property Appraiser',pts:true,
     url:'https://services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/PaGISView_gdb/FeatureServer/0',
-    fields:'FOLIO,TRUE_SITE_ADDR,TRUE_SITE_CITY,TRUE_OWNER1,DOR_CODE_CUR,BUILDING_HEATED_AREA,YEAR_BUILT,LOT_SIZE,DOS_1,PRICE_1,DATEOFSALE_UTC',
+    fields:'*',
     date:function(c,n){return "DATEOFSALE_UTC >= DATE '"+csIso(c)+"' AND DATEOFSALE_UTC <= DATE '"+csIso(n)+"'"},price:'PRICE_1',
     map:function(a){return {pid:a.FOLIO,addr:a.TRUE_SITE_ADDR,city:a.TRUE_SITE_CITY,owner:a.TRUE_OWNER1,price:a.PRICE_1,date:csDateYmd(a.DOS_1)||csDateMs(a.DATEOFSALE_UTC),
       code:csCode(a.DOR_CODE_CUR),sqft:a.BUILDING_HEATED_AREA,yr:a.YEAR_BUILT,acres:csNum(a.LOT_SIZE)/43560}}},
@@ -880,8 +880,9 @@ function sameMonth(a,b){return a.sy===b.sy&&a.sm===b.sm}
 
 /* Mark sales that were one deed covering several parcels; their price is for the whole group. */
 function flagMultiParcel(recs){
-  var by={};recs.forEach(function(r){var k=r.county+'|'+(r.deal||(r.sy+'-'+r.sm+'-'+r.sd+'|'+Math.round(r.price)));(by[k]=by[k]||{})[r.cid]=1});
-  recs.forEach(function(r){var k=r.county+'|'+(r.deal||(r.sy+'-'+r.sm+'-'+r.sd+'|'+Math.round(r.price)));if(Object.keys(by[k]).length>1)r.qual='M'});
+  function key(r){return r.deal?r.county+'|'+r.deal:r.sd?r.county+'|'+r.sy+'-'+r.sm+'-'+r.sd+'|'+Math.round(r.price):''} // month-only dates are too coarse to tell
+  var by={};recs.forEach(function(r){var k=key(r);if(k)(by[k]=by[k]||{})[r.cid]=1});
+  recs.forEach(function(r){var k=key(r);if(k&&Object.keys(by[k]).length>1)r.qual='M'});
   return recs;
 }
 
