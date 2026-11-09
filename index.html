@@ -797,7 +797,7 @@ var COUNTY_SOURCES={
     url:'https://services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/PaGISView_gdb/FeatureServer/0',
     fields:'*',
     date:function(c,n){return "DATEOFSALE_UTC >= DATE '"+csIso(c)+"' AND DATEOFSALE_UTC <= DATE '"+csIso(n)+"'"},price:'PRICE_1',
-    map:function(a){return {pid:a.FOLIO,addr:a.TRUE_SITE_ADDR,city:a.TRUE_SITE_CITY,owner:a.TRUE_OWNER1,price:a.PRICE_1,date:csDateYmd(a.DOS_1)||csDateMs(a.DATEOFSALE_UTC),
+    map:function(a){return {pid:a.FOLIO,addr:a.TRUE_SITE_ADDR,city:/UNINC/i.test(trimS(a.TRUE_SITE_CITY))?'':a.TRUE_SITE_CITY,owner:a.TRUE_OWNER1,price:a.PRICE_1,date:csDateYmd(a.DOS_1)||csDateMs(a.DATEOFSALE_UTC),
       code:csCode(a.DOR_CODE_CUR),sqft:a.BUILDING_HEATED_AREA,yr:a.YEAR_BUILT,acres:csNum(a.LOT_SIZE)/43560}}},
   'Orange':{name:'Orange County Property Appraiser',pts:true,
     url:'https://vgispublic.ocpafl.org/server/rest/services/DYNAMIC/Dynamic_Layers/MapServer/14',
@@ -818,7 +818,7 @@ var COUNTY_SOURCES={
     fields:'STRAP,SALE_PRICE,DOS,QUALIFIED_FLG,USE_CD,TOTAL_LIVING_SQFT_DISPLAY',
     date:function(c,n){return "DOS >= DATE '"+csIso(c)+"' AND DOS <= DATE '"+csIso(n)+"'"},price:'SALE_PRICE',
     map:function(a){return {pid:a.STRAP,price:a.SALE_PRICE,date:csDateMs(a.DOS),qual:csQ(a.QUALIFIED_FLG),code:csCode(a.USE_CD),sqft:csNum(a.TOTAL_LIVING_SQFT_DISPLAY),noOwner:true}}},
-  'Lee':{name:'Lee County Property Appraiser',
+  'Lee':{name:'Lee County Property Appraiser',ids:true,
     url:'https://gissvr.leepa.org/gissvr/rest/services/ParcelInfo/MapServer/23',
     fields:'FOLIOID,SaleYear,SaleMonth,SalePrice,dorcode,YearBuilt,GrossArea',
     date:function(c){return "(SaleYear > "+c.getFullYear()+" OR (SaleYear = "+c.getFullYear()+" AND SaleMonth >= "+(c.getMonth()+1)+"))"},
@@ -1010,14 +1010,20 @@ function fetchCounty(county,pt){
     function w(){return usePrice?dateW+' AND '+src.price+' >= 1000':dateW}
     var shape={outFields:src.fields,returnGeometry:'true',geometryPrecision:'5',outSR:'4326',f:'json'};
     if(!src.pts)shape.maxAllowableOffset='0.00005';
-    /* Ask for the matching record ids first (fast), then fetch the records in parallel chunks. */
-    function ids(){return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'}))
-      .catch(function(err){if(usePrice){usePrice=false;return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'}))}throw err})}
-    return ids().then(function(j){
-      var list=(j.objectIds||[]).slice(0,8000),out=[],chunks=[];
+    function page(off,all){
+      var p=Object.assign({},geo,shape,{where:w(),orderByFields:'OBJECTID',resultRecordCount:'2000'});if(off)p.resultOffset=String(off);
+      return getJ(url+'/query',p).catch(function(err){if(off===0&&usePrice){usePrice=false;p.where=w();return getJ(url+'/query',p)}throw err})
+        .then(function(j){var f=j.features||[];all=all.concat(f);if(j.exceededTransferLimit&&f.length&&all.length<8000)return page(off+f.length,all);return all});
+    }
+    if(!src.ids)return page(0,[]);
+    /* Slow joined layers: ask for the matching record ids first (fast), then fetch the records in parallel chunks. */
+    return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'})).then(function(j){
+      var list=(j.objectIds||[]).slice(0,8000),out=[],chunks=[],failed=0;
       for(var i=0;i<list.length;i+=200)chunks.push(list.slice(i,i+200));
-      return pool(chunks.map(function(c){return function(){return getJ(url+'/query',Object.assign({},shape,{where:w(),objectIds:c.join(',')})).then(function(r){out=out.concat(r.features||[])})}}),6)
-        .then(function(){if(chunks.length&&!out.length)throw new Error('no records came back');return out});
+      return pool(chunks.map(function(c){return function(){
+        var q=Object.assign({},shape,{where:w(),objectIds:c.join(',')});
+        return getJ(url+'/query',q).catch(function(){return getJ(url+'/query',q)}).then(function(r){out=out.concat(r.features||[])},function(){failed++})}}),4)
+        .then(function(){if(failed)throw new Error(failed+' of '+chunks.length+' parts failed');return out});
     });
   }
   return Promise.all((src.urls||[src.url]).map(one)).then(function(lists){
