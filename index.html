@@ -950,7 +950,7 @@ function when(c){return c.sm&&c.sy?MONTHS[c.sm-1]+' '+(c.sd?c.sd+', ':'')+c.sy:'
 function srcLabel(c){return c.src==='county'?'County appraiser':'State tax roll'}
 function buyerTxt(c){return c.owner||(c.noOwner?'Not in the county feed yet':'Not listed')}
 function acresTxt(a){return a>=10?n0(a):(Math.round(a*100)/100).toString()}
-function addrLine(c){return [c.addr||'No street address',c.city].filter(Boolean).join(', ')}
+function addrLine(c){return [c.addr||(c.src==='county'?'Address not in the county feed':'No street address'),c.city].filter(Boolean).join(', ')}
 
 var F={radius:0.5,months:6,type:'same',qual:'arms',minp:10000,sqmin:0,sqmax:0,yrmin:0,yrmax:0,acmin:0,acmax:0,sort:'dist',lastAddr:''};
 try{var sv=JSON.parse(localStorage.getItem(KEY)||'null');if(sv&&typeof sv==='object')for(var k in F){if(k in sv)F[k]=sv[k]}}catch(e){}
@@ -1145,7 +1145,7 @@ function runAt(pt){
     var a=autoPick(S.all,S.subject,5);S.auto=a;
     a.picked.forEach(function(c){S.checked[c.id]=true});
     F.radius=a.radius;F.months=a.months;F.type='same';F.qual='arms';saveF();syncFilterUI(); // show the filters the auto pick used, so its picks are on screen
-    if(S.stateErr)status("The Florida tax roll isn't answering right now, so this shows only the county appraiser's sales from the last 12 months, without the property's own details. Search again in a few minutes for the full picture.",'warn');
+    if(S.stateErr)status("The Florida tax roll isn't answering right now, so this shows only the county appraiser's sales from the last 12 months"+(s?'':", without the property's own details")+". Search again in a few minutes for the full picture.",'warn');
     else status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
     render();sendToCalc();
   }).catch(function(err){
