@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>probe</title><meta name="viewport" content="width=device-width"></head>
+<body><pre id="o">running…</pre><script>
+var COUNTIES=['Levy','Marion','Citrus','Sumter','Hernando','Pasco','Hillsborough','Pinellas','Polk','Flagler','Volusia','Lake','Seminole','Orange','Osceola','Brevard','Indian River','St. Lucie','Martin','Okeechobee','Manatee','Hardee','Sarasota','DeSoto','Highlands','Charlotte','Glades','Lee','Hendry','Collier','Palm Beach','Broward','Miami-Dade','Monroe'];
+var q=new URLSearchParams(location.search), only=q.get('c'), extra=(q.get('u')||'').split('|').filter(Boolean);
+var out=[],seen={};
+function log(s){out.push(s);document.getElementById('o').textContent=out.join('\n')}
+function j(u){var c=new AbortController();setTimeout(function(){c.abort()},20000);return fetch(u,{signal:c.signal}).then(function(r){return r.json()})}
+function inFL(e){if(!e||!e.length)return true;return e[0][1]>24&&e[1][1]<31.5&&e[0][0]>-88&&e[1][0]<-79}
+var DATE=/(SALE.?D(A)?TE|SALEDT|DOS_?1|DATEOFSALE|SALE_?DT|LAST_?SALE_?DATE|SALEDATE|DEED_?DATE|SALE1_?DATE|SALE_DATE1|S1_DATE|SALE_YR1|SALEYEAR|SALE_YEAR)/i;
+var PRICE=/(SALE.?(PR|AMT|PRICE|AMOUNT|VAL)|PRICE_?1|SALEPRICE|LAST_?SALE_?(PRICE|AMT)|SALE1_?(PRICE|AMT)|S1_PRICE)/i;
+function pool(tasks,n){var i=0;return new Promise(function(res){var a=0;function nx(){if(i>=tasks.length){if(!a)res();return}var t=tasks[i++];a++;t().catch(function(){}).then(function(){a--;nx()})}for(var k=0;k<n;k++)nx()})}
+function checkLayer(name,lu){
+  return j(lu+'?f=json').then(function(m){
+    if(!m.fields)return;var fs=m.fields.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')});
+    var d=m.fields.filter(function(f){return DATE.test(f.name)}),p=m.fields.filter(function(f){return PRICE.test(f.name)});
+    if(!d.length||!p.length)return;
+    var df=(d.find(function(f){return f.type==='esriFieldTypeDate'})||d[0]);
+    var st=encodeURIComponent(JSON.stringify([{statisticType:'max',onStatisticField:df.name,outStatisticFieldName:'mx'},{statisticType:'count',onStatisticField:df.name,outStatisticFieldName:'n'}]));
+    return j(lu+'/query?where=1%3D1&outStatistics='+st+'&f=json').then(function(r){
+      var a=r.features&&r.features[0]&&r.features[0].attributes||{};var mx=a.mx||a.MX;
+      if(df.type==='esriFieldTypeDate'&&mx)mx=new Date(mx).toISOString().slice(0,10);
+      log('HIT '+name+' | '+lu+' | geom '+(m.geometryType||'')+' | max '+m.maxRecordCount+' | date '+df.name+'='+mx+' n='+(a.n||a.N)+(r.error?' ERR '+r.error.message:'')+'\n    price '+p.map(function(f){return f.name}).join(',')+' | dates '+d.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')}).join(',')+'\n    fields '+fs.join(' ').slice(0,900));
+    }).catch(function(e){log('HIT? '+name+' | '+lu+' | date '+df.name+' stats failed '+e)});
+  }).catch(function(e){log('FAIL '+name+' | '+lu+' | '+e)});
+}
+function checkService(name,su){
+  if(seen[su])return Promise.resolve();seen[su]=1;
+  if(/\/\d+$/.test(su))return checkLayer(name,su);
+  return j(su+'?f=json').then(function(s){var ls=(s.layers||[]).concat(s.tables||[]);
+    return Promise.all(ls.slice(0,25).map(function(l){return checkLayer(name+'#'+l.name,su+'/'+l.id)}))}).catch(function(e){log('FAIL '+name+' | '+su+' | '+e)});
+}
+var tasks=[];
+extra.forEach(function(u){tasks.push(function(){return checkService('manual',u)})});
+(only?only.split(','):COUNTIES).forEach(function(c){
+  if(q.get('nosearch'))return;
+  tasks.push(function(){
+    var qs='"'+c+' County" AND (parcel OR parcels OR property OR sales) AND type:"Feature Service"';
+    return j('https://www.arcgis.com/sharing/rest/search?num=60&f=json&q='+encodeURIComponent(qs)).then(function(r){
+      var its=(r.results||[]).filter(function(i){return i.url&&inFL(i.extent)});
+      return pool(its.map(function(i){return function(){return checkService(c+': '+i.title+' ['+i.owner+']',i.url.replace(/\/$/,''))}}),4);
+    });
+  });
+});
+pool(tasks,3).then(function(){log('DONE '+new Date().toISOString())});
+</script></body></html>
