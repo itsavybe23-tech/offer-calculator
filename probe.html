@@ -29,6 +29,8 @@ function checkLayer(name,lu){
     return j(lu+'/query?where=1%3D1&outStatistics='+st+'&f=json').then(function(r){
       var a=r.features&&r.features[0]&&r.features[0].attributes||{};var mx=a.mx||a.MX;
       if(df.type==='esriFieldTypeDate'&&mx)mx=new Date(mx).toISOString().slice(0,10);
+      if(!mx&&df.type==='esriFieldTypeDate'){return j(lu+'/query?where='+encodeURIComponent(df.name+" >= DATE '2026-07-01'")+'&outFields='+encodeURIComponent(df.name)+'&returnGeometry=false&resultRecordCount=1000&f=json').then(function(r2){var mm=0;(r2.features||[]).forEach(function(f){var v=f.attributes[df.name];if(v>mm)mm=v});
+        log('\n### HIT '+name+' | '+lu+' | max '+m.maxRecordCount+' | date '+df.name+' (fallback) since Jul26='+(r2.features||[]).length+' newest='+(mm?new Date(mm).toISOString().slice(0,10):'')+(r2.error?' ERR '+JSON.stringify(r2.error).slice(0,200):'')+' | price '+p.map(function(f){return f.name}).join(','))})}
       log('\n### HIT '+name+' | '+lu+' | geom '+(m.geometryType||'')+' | max '+m.maxRecordCount+' | date '+df.name+'='+mx+' n='+(a.n||a.N)+(r.error?' ERR '+r.error.message:'')+'\n    price '+p.map(function(f){return f.name}).join(',')+' | dates '+d.map(function(f){return f.name+':'+f.type.replace('esriFieldType','')}).join(',')+'\n    fields '+fs.join(' ').slice(0,500));
     }).catch(function(e){log('HIT? '+name+' | '+lu+' | date '+df.name+' stats failed '+e)});
   }).catch(function(e){log('FAIL '+name+' | '+lu+' | '+e)});
