@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>probe2</title><pre id="o"></pre><script>
+var L='https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0/query';
+var F='PARCEL_ID,CO_NO,DOR_UC,OWN_NAME,PHY_ADDR1,PHY_CITY,PHY_ZIPCD,TOT_LVG_AR,ACT_YR_BLT,LND_SQFOOT,LND_UNTS_C,NO_LND_UNT,JV,SALE_PRC1,SALE_YR1,SALE_MO1,QUAL_CD1,VI_CD1,ASMNT_YR';
+function log(s){document.getElementById('o').textContent+=s+'\n'}
+function q(kind,lat,lon){
+  var p={where:'SALE_YR1>=2024 AND SALE_PRC1>=1000',outFields:F,returnGeometry:'true',returnCentroid:'true',geometryPrecision:'5',maxAllowableOffset:'0.00003',orderByFields:'OBJECTID',resultRecordCount:'2000',outSR:'4326',f:'json',inSR:'4326',spatialRel:'esriSpatialRelIntersects'};
+  if(kind==='dist'){p.geometry=lon+','+lat;p.geometryType='esriGeometryPoint';p.distance='2';p.units='esriSRUnit_StatuteMile'}
+  else{var dl=2/69,dn=2/(69*Math.cos(lat*Math.PI/180));p.geometry=[lon-dn,lat-dl,lon+dn,lat+dl].map(function(v){return v.toFixed(5)}).join(',');p.geometryType='esriGeometryEnvelope'}
+  if(kind==='envnc')delete p.returnCentroid;
+  var t=performance.now();
+  return fetch(L,{method:'POST',body:new URLSearchParams(p)}).then(function(r){return r.status===200?r.json():{error:{message:'HTTP '+r.status}}}).then(function(j){
+    log(kind+' '+lat+','+lon+': '+((performance.now()-t)/1000).toFixed(1)+'s '+(j.error?'ERR '+j.error.message:(j.features||[]).length+' feats more='+!!j.exceededTransferLimit))});
+}
+var tests=[['env',26.3398,-81.7787],['envnc',26.4380,-81.8070],['dist',26.6100,-81.6400],['env',27.0440,-82.2360],['dist',26.2700,-81.7600],['envnc',28.0300,-81.9500]];
+tests.reduce(function(pr,t){return pr.then(function(){return q(t[0],t[1],t[2])})},Promise.resolve()).then(function(){log('DONE')});
+</script>
