@@ -792,6 +792,11 @@ function csYmdNum(d){return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate
 function csYears(cut,now){var a=[];for(var y=cut.getFullYear();y<=now.getFullYear();y++)a.push(y);return a}
 function csQ(v){v=trimS(v).toUpperCase();return v==='Q'?'Q':v?'U':'?'}
 
+/* Rough outlines (west, south, east, north) of the counties with a county feed, padded a little. Used only when the address lookup can't name the county, so the county feed still runs. */
+var FEED_BOX={'Miami-Dade':[-80.9,25.1,-80.1,26.0],'Orange':[-81.7,28.33,-80.85,28.8],'Hillsborough':[-82.66,27.56,-82.04,28.19],'Pinellas':[-82.87,27.59,-82.53,28.19],
+  'Lee':[-82.28,26.3,-81.55,26.8],'Volusia':[-81.69,28.6,-80.87,29.44],'Sarasota':[-82.67,26.93,-82.04,27.4],'Collier':[-81.86,25.79,-80.86,26.53],
+  'Marion':[-82.55,28.95,-81.5,29.54],'Lake':[-81.97,28.34,-81.31,29.29],'Hernando':[-82.78,28.42,-82.04,28.71],'Highlands':[-81.58,26.95,-81.13,27.66]};
+function feedGuess(pt){return Object.keys(FEED_BOX).filter(function(k){var b=FEED_BOX[k];return pt.lon>=b[0]&&pt.lon<=b[2]&&pt.lat>=b[1]&&pt.lat<=b[3]})}
 var COUNTY_SOURCES={
   'Miami-Dade':{name:'Miami-Dade County Property Appraiser',pts:true,
     url:'https://services.arcgis.com/8Pc9XBTAsYuxx9Ny/arcgis/rest/services/PaGISView_gdb/FeatureServer/0',
@@ -1101,6 +1106,14 @@ function fetchSales(pt,onProgress){
 
 /* ---------- flow ---------- */
 function status(msg,kind){var el=$('c-status');if(!msg){el.hidden=true;return}el.hidden=false;el.className='flag '+(kind||'info');el.textContent=msg}
+function outage(kind){var e=new Error('state records down');e.outage=kind;return e}
+function outageMsg(kind,c){
+  var st="The Florida state property records aren't answering right now";
+  if(kind==='nofeed')return st+", and "+c+" County doesn't publish its recent sales in a form this page can read, so there are no comps to show. Try again in a few minutes.";
+  if(kind==='both')return st+", and the "+(c?c+' County':'county')+" appraiser's sales didn't load either, so there are no comps to show. Try again in a few minutes.";
+  if(kind==='empty')return st+". The "+(c?c+' County':'county')+" appraiser has no sales within 2 miles in the last 12 months, so there are no comps to show. Try again in a few minutes for older sales.";
+  return st+", so there are no comps to show. Try again in a few minutes.";
+}
 function runAt(pt){
   S.busy=true;S.pt=pt;S.subject=null;S.all=[];S.checked={};S.auto=null;
   $('c-go').disabled=true;status('Finding the parcel and loading sales within 2 miles…');
@@ -1113,16 +1126,17 @@ function runAt(pt){
   var countyP={};
   function startCounty(c){if(c&&COUNTY_SOURCES[c]&&!countyP[c])countyP[c]=fetchCounty(c,pt).catch(function(e){return {county:c,err:e}})}
   subjP.then(function(s){if(s)startCounty(s.county)});
-  var cntP=countyOf(pt).then(function(c){startCounty(c)});
+  var cntP=countyOf(pt).then(function(c){if(c)startCounty(c);else feedGuess(pt).forEach(startCounty)});
   Promise.all([subjP,salesP,cntP]).then(function(res){
     S.subject=res[0];var recs=res[1],seen={};
     if(S.subject&&S.subject.county)seen[S.subject.county]=1;
     recs.forEach(function(r){if(r.county)seen[r.county]=1});
     Object.keys(seen).forEach(startCounty);
     S.noFeed=Object.keys(seen).filter(function(c){return !COUNTY_SOURCES[c]}).sort();
+    S.where=(S.subject&&S.subject.county)||pt.county||'';
     var keys=Object.keys(countyP).sort();S.sources={};
     S.newest=null;recs.forEach(function(c){if(c.sy&&c.sm&&(!S.newest||c.sy*12+c.sm>S.newest.sy*12+S.newest.sm))S.newest={sy:c.sy,sm:c.sm}});
-    if(!keys.length){if(S.stateErr)throw S.stateErr;return recs}
+    if(!keys.length){if(S.stateErr)throw outage(S.where&&!COUNTY_SOURCES[S.where]?'nofeed':'unknown');return recs}
     status('Loading recent sales from the '+keys.join(' and ')+' County appraiser'+(keys.length>1?'s':'')+'…');
     var late=function(k){return new Promise(function(res){setTimeout(function(){res({county:k,err:new Error('timeout'),late:true})},30000)})};
     return Promise.all(keys.map(function(k){return Promise.race([countyP[k],late(k)])})).then(function(results){
@@ -1132,7 +1146,7 @@ function runAt(pt){
         var nw=null;r.recs.forEach(function(c){if(!nw||saleKey(c)>saleKey(nw))nw=c});
         S.sources[r.county]={ok:true,name:r.src.name,n:r.recs.length,newest:nw?{sy:nw.sy,sm:nw.sm,sd:nw.sd}:null};crecs=crecs.concat(r.recs);
       });
-      if(!crecs.length){if(S.stateErr)throw S.stateErr;return recs}
+      if(!crecs.length){if(S.stateErr)throw outage(results.some(function(r){return !r.err})?'empty':'both');return recs}
       var miss=S.stateErr?[]:unmatchedCounty(recs,crecs);
       if(miss.length)status('Matching '+n0(crecs.length)+' county sales to parcel details…');
       return (miss.length?stateAt(miss.slice(0,3000)).catch(function(){return []}):Promise.resolve([])).then(function(extra){return mergeCounty(recs,crecs,extra)});
@@ -1149,7 +1163,8 @@ function runAt(pt){
     else status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
     render();sendToCalc();
   }).catch(function(err){
-    status("Couldn't load the Florida parcel records ("+(err&&err.message||'network error')+"). Check your connection and try again.",'bad');
+    if(err&&err.outage){render();status(outageMsg(err.outage,S.where),'bad');return}
+    status("Something went wrong loading sales ("+(err&&err.message||'network error')+"). Try again in a minute.",'bad');
   }).then(function(){S.busy=false;$('c-go').disabled=false});
 }
 $('c-form').addEventListener('submit',function(e){
