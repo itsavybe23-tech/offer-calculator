@@ -1024,12 +1024,14 @@ function fetchCounty(county,pt){
     if(!src.ids)return page(0,[]);
     /* Slow joined layers: ask for the matching record ids first (fast), then fetch the records in parallel chunks. */
     return getJ(url+'/query',Object.assign({},geo,{where:w(),returnIdsOnly:'true'})).then(function(j){
-      var list=(j.objectIds||[]).slice(0,8000),out=[],chunks=[],failed=0;
+      var list=(j.objectIds||[]).slice(0,8000),out=[],chunks=[],lost=0;
       for(var i=0;i<list.length;i+=200)chunks.push(list.slice(i,i+200));
-      return pool(chunks.map(function(c){return function(){
-        var q=Object.assign({},shape,{where:w(),objectIds:c.join(',')});
-        return getJ(url+'/query',q).catch(function(){return getJ(url+'/query',q)}).then(function(r){out=out.concat(r.features||[])},function(){failed++})}}),4)
-        .then(function(){if(failed)throw new Error(failed+' of '+chunks.length+' parts failed');return out});
+      /* A part that fails is split in half and asked again, so one bad record can't sink the rest. */
+      function grab(c){var q=Object.assign({},shape,{where:w(),objectIds:c.join(',')});
+        return getJ(url+'/query',q).then(function(r){out=out.concat(r.features||[])},function(){
+          if(c.length<=25){lost+=c.length;return}var h=Math.ceil(c.length/2);return grab(c.slice(0,h)).then(function(){return grab(c.slice(h))})})}
+      return pool(chunks.map(function(c){return function(){return grab(c)}}),4)
+        .then(function(){if(list.length&&lost>list.length/2)throw new Error(lost+' of '+list.length+' records failed');return out});
     });
   }
   return Promise.all((src.urls||[src.url]).map(one)).then(function(lists){
