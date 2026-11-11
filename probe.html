@@ -1,0 +1,41 @@
+<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>probe</title>
+<body style="font:12px monospace"><pre id="o">running…</pre><script>
+var C=(new URLSearchParams(location.search).get('c')||'Brevard,Seminole,Broward,Palm Beach,Polk,Pasco,St. Lucie,Charlotte,Osceola,Manatee,Martin,Citrus,Indian River,Flagler,Monroe,Sumter,Levy,DeSoto,Glades,Hendry,Okeechobee,Hardee').split(',');
+var o=document.getElementById('o'),lines=[];function log(s){lines.push(s);o.textContent=lines.join('\n')}
+function j(u,ms){var ac=new AbortController();setTimeout(function(){ac.abort()},ms||15000);return fetch(u,{signal:ac.signal}).then(function(r){return r.json()})}
+function q(o){return new URLSearchParams(o).toString()}
+var seen={};
+async function layerCheck(county,url){
+  if(seen[url])return;seen[url]=1;
+  var m;try{m=await j(url+'?f=json')}catch(e){log('  x '+url+' '+e.name);return}
+  if(m.error){log('  x '+url+' '+m.error.message);return}
+  var f=(m.fields||[]).map(function(x){return x.name+':'+x.type.replace('esriFieldType','')});
+  var dates=(m.fields||[]).filter(function(x){return /sal|sls|deed|xfer|transf|sold/i.test(x.name)&&/(dat|dt|yr|year|mo)/i.test(x.name)});
+  var price=(m.fields||[]).filter(function(x){return /(sal|sls|sold).*(pr|amt|amount|val)|price|consid/i.test(x.name)});
+  if(!dates.length||!price.length)return;
+  var d=dates.filter(function(x){return x.type==='esriFieldTypeDate'})[0]||dates[0],mx='?';
+  try{var s=await j(url+'/query?'+q({where:'1=1',outStatistics:JSON.stringify([{statisticType:'max',onStatisticField:d.name,outStatisticFieldName:'mx'}]),f:'json'}),20000);
+    mx=s.features&&s.features[0]?s.features[0].attributes.mx:JSON.stringify(s.error&&s.error.message);if(typeof mx==='number'&&mx>1e11)mx=new Date(mx).toISOString().slice(0,10)}catch(e){mx='stat '+e.name}
+  var cnt='?';try{var c=await j(url+'/query?'+q({where:'1=1',returnCountOnly:'true',f:'json'}),20000);cnt=c.count}catch(e){}
+  log('  ✓ '+county+' | '+url+' | '+(m.geometryType||'')+' | n='+cnt+' | maxdate('+d.name+')='+mx+' | price='+price.map(function(x){return x.name}).join('/')+' | dates='+dates.map(function(x){return x.name}).join('/'));
+}
+async function svc(county,url){
+  var m;try{m=await j(url+'?f=json')}catch(e){log('  x svc '+url+' '+e.name);return}
+  if(m.error)return;
+  var ls=(m.layers||[]).concat(m.tables||[]);
+  if(!ls.length&&m.fields)return layerCheck(county,url);
+  for(var i=0;i<ls.length&&i<40;i++)await layerCheck(county,url+'/'+ls[i].id);
+}
+(async function(){
+  for(var ci=0;ci<C.length;ci++){var county=C[ci];log('== '+county);
+    var items=[];
+    for(var t of ['"Feature Service"','"Map Service"']){
+      try{var r=await j('https://www.arcgis.com/sharing/rest/search?'+q({f:'json',num:'60',q:'"'+county+'" (parcel OR parcels OR sales OR property) type:'+t}));
+        items=items.concat((r.results||[]).filter(function(x){return x.url&&(new RegExp(county.replace('.','\\.'),'i')).test((x.title||'')+' '+(x.snippet||'')+' '+(x.tags||[]).join(' ')+' '+(x.owner||''))}))}catch(e){log(' search fail '+e.name)}
+    }
+    log(' items '+items.length);
+    for(var k=0;k<items.length;k++){var u=items[k].url.replace(/\/+$/,'');if(/\/\d+$/.test(u))await layerCheck(county,u);else await svc(county,u)}
+  }
+  log('DONE');
+})();
+</script>
