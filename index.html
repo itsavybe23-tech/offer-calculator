@@ -239,7 +239,7 @@ body.lock{overflow:hidden}
         <div class="avgbar" id="c-avg" hidden></div>
         <div id="c-list" class="clist"><p class="note">Enter an address to see nearby sales.</p></div>
       </div>
-      <p class="note" id="c-data">Recent sales come from free public data published by the county property appraisers in Miami-Dade, Orange, Hillsborough, Pinellas, Lee, Volusia, Sarasota, Collier, Marion, Lake, Hernando and Highlands counties. Older sales, and every other county, come from the Florida Department of Revenue tax roll, published through the Florida Geographic Information Office. Each sale shows which one it came from. The buyer shown is the buyer on the deed where the county lists one, otherwise the current owner of record. Lee and Marion list sale dates by month, and the state roll does too.</p>
+      <p class="note" id="c-data">Recent sales come from free public data published by the county property appraisers in Miami-Dade, Orange, Hillsborough, Pinellas, Lee, Volusia, Sarasota, Collier, Palm Beach, Seminole, Manatee, Marion, Lake, Hernando and Highlands counties. Older sales, and every other county, come from the Florida Department of Revenue tax roll, published through the Florida Geographic Information Office. Each sale shows which one it came from. The buyer shown is the buyer on the deed where the county lists one, otherwise the current owner of record. Lee and Marion list sale dates by month, and the state roll does too.</p>
     </div>
   </section>
 
@@ -790,12 +790,22 @@ function csNum(v){if(v==null)return 0;var n=parseFloat(String(v).replace(/[^0-9.
 function csIso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function csYmdNum(d){return d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate()}
 function csYears(cut,now){var a=[];for(var y=cut.getFullYear();y<=now.getFullYear();y++)a.push(y);return a}
+var CS_MON={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+function csDateDmy(v){var m=trimS(v).toUpperCase().match(/^(\d{1,2})-([A-Z]{3})-(\d{2})$/);if(!m||!CS_MON[m[2]])return null;var y=+m[3];return {y:y>50?1900+y:2000+y,m:CS_MON[m[2]],d:+m[1]}}
+function csMonths(cut,now){var a=[],d=new Date(cut.getFullYear(),cut.getMonth(),1);while(d<=now){a.push(d.getFullYear()*100+d.getMonth()+1);d.setMonth(d.getMonth()+1)}return a}
+/* Palm Beach lists property use as words, not the state's number codes. */
+function pbcUse(v){v=trimS(v).toUpperCase();if(!v)return -1;
+  if(/^VACANT (COMM|INDUS)/.test(v))return /INDUS/.test(v)?40:10;if(/^VACANT/.test(v))return 0;
+  if(/^AG CLASS/.test(v))return 51;if(/MOBILE HOME|MHT|MODULAR/.test(v))return 2;
+  if(/^MULTIFAMILY 10|MULTIFAMILY >|UNITS OR MORE/.test(v))return 3;if(/^MULTIFAMILY|^MFR/.test(v))return 8;
+  if(/^SINGLE FAMILY|^TOWNHOUSE|^MISC RESIDENCE/.test(v))return 1;if(v==='CONDOMINIUM')return 4;if(v==='COOPERATIVE')return 5;
+  if(v==='RETIREMENT')return 6;return -1}
 function csQ(v){v=trimS(v).toUpperCase();return v==='Q'?'Q':v?'U':'?'}
 
 /* Rough outlines (west, south, east, north) of the counties with a county feed, padded a little. Used only when the address lookup can't name the county, so the county feed still runs. */
 var FEED_BOX={'Miami-Dade':[-80.9,25.1,-80.1,26.0],'Orange':[-81.7,28.33,-80.85,28.8],'Hillsborough':[-82.66,27.56,-82.04,28.19],'Pinellas':[-82.87,27.59,-82.53,28.19],
   'Lee':[-82.28,26.3,-81.55,26.8],'Volusia':[-81.69,28.6,-80.87,29.44],'Sarasota':[-82.67,26.93,-82.04,27.4],'Collier':[-81.86,25.79,-80.86,26.53],
-  'Marion':[-82.55,28.95,-81.5,29.54],'Lake':[-81.97,28.34,-81.31,29.29],'Hernando':[-82.78,28.42,-82.04,28.71],'Highlands':[-81.58,26.95,-81.13,27.66]};
+  'Marion':[-82.55,28.95,-81.5,29.54],'Palm Beach':[-80.89,26.31,-80.02,26.98],'Seminole':[-81.47,28.57,-81.0,28.88],'Manatee':[-82.75,27.2,-81.95,27.65],'Lake':[-81.97,28.34,-81.31,29.29],'Hernando':[-82.78,28.42,-82.04,28.71],'Highlands':[-81.58,26.95,-81.13,27.66]};
 function feedGuess(pt){return Object.keys(FEED_BOX).filter(function(k){var b=FEED_BOX[k];return pt.lon>=b[0]&&pt.lon<=b[2]&&pt.lat>=b[1]&&pt.lat<=b[3]})}
 var COUNTY_SOURCES={
   'Miami-Dade':{name:'Miami-Dade County Property Appraiser',pts:true,
@@ -865,7 +875,29 @@ var COUNTY_SOURCES={
     url:'https://gis.highlandsfl.gov/server/rest/services/Layers/PAO_Tax_Parcel/FeatureServer/1',
     fields:'PARCELNO,SITEADDRESS,Site_Add_C,Owner_Name_1,DOR_Code,Calculated_Acres,Sale_Date_1,Sale_Price_1',
     date:function(c,n){return '('+csYears(c,n).map(function(y){return "Sale_Date_1 LIKE '%/"+y+"'"}).join(' OR ')+')'},price:'Sale_Price_1',
-    map:function(a){return {pid:a.PARCELNO,addr:a.SITEADDRESS,city:a.Site_Add_C,owner:a.Owner_Name_1,price:a.Sale_Price_1,date:csDateMdy(a.Sale_Date_1),code:csCode(a.DOR_Code),acres:a.Calculated_Acres}}}
+    map:function(a){return {pid:a.PARCELNO,addr:a.SITEADDRESS,city:a.Site_Add_C,owner:a.Owner_Name_1,price:a.Sale_Price_1,date:csDateMdy(a.Sale_Date_1),code:csCode(a.DOR_Code),acres:a.Calculated_Acres}}},
+  'Palm Beach':{name:'Palm Beach County Property Appraiser',cent:true,oid:'OBJECTID_1',
+    url:'https://services1.arcgis.com/ZWOoUZbtaYePLlPw/arcgis/rest/services/Parcels_and_Property_Details_WebMercator/FeatureServer/0',
+    fields:'PARID,OWNER_NAME1,OWNER_NAME2,SITE_ADDR_STR,MUNICIPALITY,ACRES,SALE_DATE,PRICE,INSTRUMENT,BOOK,PAGE,PROPERTY_USE,YRBLT',
+    date:function(c,n){return "SALE_DATE >= DATE '"+csIso(c)+"' AND SALE_DATE <= DATE '"+csIso(n)+"'"},price:'PRICE',
+    map:function(a){var ins=trimS(a.INSTRUMENT).toUpperCase(),o=trimS(a.OWNER_NAME1),o2=trimS(a.OWNER_NAME2);if(o2&&/&$/.test(o))o+=' '+o2;
+      var city=trimS(a.MUNICIPALITY);if(/UNINC/i.test(city))city='';
+      return {pid:a.PARID,addr:a.SITE_ADDR_STR,city:city,owner:o,price:a.PRICE,date:csDateMs(a.SALE_DATE),code:pbcUse(a.PROPERTY_USE),
+        yr:csNum(a.YRBLT),acres:a.ACRES,deal:a.BOOK&&a.PAGE?a.BOOK+'/'+a.PAGE:'',qual:/^(QC|CT|TD|CD|DC|LE|PR|GD)$/.test(ins)?'U':'?'}}},
+  'Seminole':{name:'Seminole County Property Appraiser',
+    url:'https://utility.arcgis.com/usrsvcs/servers/9b9c9fd45bdc4c39a2bd518da39d1e1c/rest/services/InformationKiosk/MapServer/1',
+    fields:'ParcelNumber,OwnerName,Address,PropertyAddress,CityName,DOR4,VacantImproved,GISAcres,YearBuilt,TotalLivingArea,LastSaleDate,LastSaleAmt',
+    date:function(c,n){return "LastSaleDate >= DATE '"+csIso(c)+"' AND LastSaleDate <= DATE '"+csIso(n)+"'"},price:'LastSaleAmt',
+    map:function(a){var city=trimS(a.CityName);if(!city||/^county$/i.test(city)){var m=trimS(a.PropertyAddress).slice(trimS(a.Address).length).match(/^\s*(.*?)\s+FL\b/i);city=m?m[1]:''}
+      return {pid:a.ParcelNumber,addr:a.Address,city:city,owner:a.OwnerName,price:a.LastSaleAmt,date:csDateMs(a.LastSaleDate),code:csCode(a.DOR4),
+        vi:/^vac/i.test(trimS(a.VacantImproved))?'V':/^imp/i.test(trimS(a.VacantImproved))?'I':'',yr:a.YearBuilt,sqft:a.TotalLivingArea,acres:a.GISAcres}}},
+  'Manatee':{name:'Manatee County Property Appraiser',
+    url:'https://www.mymanatee.org/gisits/rest/services/opendata/General/FeatureServer/0',
+    fields:'PARCEL_ID,PRIMARY_ADDRESS,PROP_CITYNAME,OWNER,SECONDARY_OWNER,LUC,SFLA,YRBLT_RES,ACRES,SALEDATE,SALEPRICE',
+    /* Sale dates are text like 05-SEP-26, so match each month in the window. Prices are text too, so the price floor is applied here, not in the query. */
+    date:function(c,n){return '('+csMonths(c,n).map(function(ym){return "SALEDATE LIKE '%-"+['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][ym%100-1]+"-"+String(Math.floor(ym/100)%100).padStart(2,'0')+"'"}).join(' OR ')+')'},
+    map:function(a){return {pid:a.PARCEL_ID,addr:a.PRIMARY_ADDRESS,city:a.PROP_CITYNAME,owner:a.OWNER,price:csNum(a.SALEPRICE),date:csDateDmy(a.SALEDATE),code:csCode(a.LUC),
+      sqft:csNum(a.SFLA),yr:csNum(a.YRBLT_RES),acres:csNum(a.ACRES)}}}
 };
 
 /* Turn one county feature into a sale record (null when it has no usable sale). */
@@ -1020,7 +1052,7 @@ function fetchCounty(county,pt){
     if(!src.pts)shape.maxAllowableOffset='0.00005';
     if(src.cent){shape.returnGeometry='false';shape.returnCentroid='true'} // hosted layers can send just a center point per parcel
     function page(off,all){
-      var p=Object.assign({},geo,shape,{where:w(),orderByFields:'OBJECTID',resultRecordCount:'2000'});if(off)p.resultOffset=String(off);
+      var p=Object.assign({},geo,shape,{where:w(),orderByFields:src.oid||'OBJECTID',resultRecordCount:'2000'});if(off)p.resultOffset=String(off);
       return getJ(url+'/query',p).catch(function(err){
           if(off===0&&shape.returnCentroid){delete shape.returnCentroid;shape.returnGeometry='true';return {retry:1}}
           if(off===0&&usePrice){usePrice=false;return {retry:1}}throw err})
