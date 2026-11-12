@@ -197,6 +197,7 @@ body.lock{overflow:hidden}
         </form>
         <p class="note">For land with no street address, tap the spot on the map instead.</p>
         <p class="flag" id="c-status" hidden></p>
+        <pre id="c-debug" hidden style="white-space:pre-wrap;font-size:11px;max-height:40vh;overflow:auto"></pre>
         <div class="filters">
           <div class="field"><span class="flabel">Radius</span>
             <div class="seg" role="group" aria-label="Radius">
@@ -1027,6 +1028,15 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&wrap.classL
 window.addEventListener('hashchange',function(){setTimeout(function(){map.invalidateSize()},60)});
 document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-view="comps"]');if(b)setTimeout(function(){map.invalidateSize()},60)});
 
+/* ---------- timing readout, only with ?debug=1 in the address ---------- */
+var DBG=/[?&]debug=1/.test(location.search),T0=0,TL=[];
+function tlog(s){if(!DBG)return;TL.push(((performance.now()-T0)/1000).toFixed(1)+'s '+s);var el=$('c-debug');el.hidden=false;el.textContent=TL.join('\n')}
+if(DBG&&window.fetch){var _f=window.fetch.bind(window);window.fetch=function(u,o){var t=performance.now(),nm=String(u).replace(/^https:\/\/([^/]+).*?\/(rest\/services\/)?([^?]*).*$/,'$1 $3').slice(0,70)+(o&&o.method?' '+o.method:'');
+  return _f(u,o).then(function(r){var c=r.clone();c.json().then(function(j){tlog(nm+' '+Math.round(performance.now()-t)+'ms '+(j&&j.features?j.features.length+' feats':j&&j.objectIds?j.objectIds.length+' ids':j&&j.error?'ERR':'ok')+(j&&j.exceededTransferLimit?' +more':''))},function(){});return r},
+    function(e){tlog(nm+' '+Math.round(performance.now()-t)+'ms FAIL '+(e&&e.name));throw e})}}
+function sigOf(list){var s=list.map(function(c){return [c.id,c.price,c.sy,c.sm,c.sd,c.sqft,c.yr,c.acres,c.owner,c.code,c.src,c.qual,c.vi,c.addr,c.city,c.jv,c.rings?1:0].join('|')}).sort().join('\n'),h=2166136261;
+  for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0}return list.length+' recs, sig '+h.toString(16)}
+
 /* ---------- network ---------- */
 function post(url,params,ms){
   var ac=ms&&window.AbortController?new AbortController():null,tm=ac?setTimeout(function(){ac.abort()},ms):0;
@@ -1148,6 +1158,7 @@ function outageMsg(kind,c){
   return st+", so there are no comps to show. Try again in a few minutes.";
 }
 function runAt(pt){
+  if(!T0||!S.t0set){T0=performance.now();TL=[]}S.t0set=false;tlog('search start');
   S.busy=true;S.pt=pt;S.subject=null;S.all=[];S.checked={};S.auto=null;
   $('c-go').disabled=true;status('Finding the parcel and loading sales within 2 miles…');
   gSubject.clearLayers();gMarks.clearLayers();gParcels.clearLayers();gRadius.clearLayers();
@@ -1196,13 +1207,14 @@ function runAt(pt){
     else if(pt.approx)status("Couldn't find that exact house number, so this shows sales around "+pt.label+". Add the city or ZIP code if that's the wrong spot.",'warn');
     else status(S.all.length?'':'No recorded sales came back within 2 miles in the last 24 months.', S.all.length?'':'warn');
     render();sendToCalc();
-  }).catch(function(err){
+    tlog('DONE '+sigOf(S.all)+' · shown '+visible().length+' · ARV '+$('h-arv').value+' · picked '+Object.keys(S.checked).sort().join(','));
+  }).catch(function(err){tlog('ERROR '+(err&&err.message));
     if(err&&err.outage){render();status(outageMsg(err.outage,S.where)+(pt.approx?" Also, that exact house number wasn't found, so the search was around "+pt.label+".":''),'bad');return}
     status("Something went wrong loading sales ("+(err&&err.message||'network error')+"). Try again in a minute.",'bad');
   }).then(function(){S.busy=false;$('c-go').disabled=false});
 }
 $('c-form').addEventListener('submit',function(e){
-  e.preventDefault();var q=$('c-addr').value.trim();if(!q)return;F.lastAddr=q;saveF();
+  e.preventDefault();var q=$('c-addr').value.trim();if(!q)return;F.lastAddr=q;saveF();T0=performance.now();TL=[];S.t0set=true;tlog('geocode start');
   status('Looking up the address…');
   geocode(q).then(function(pt){
     if(pt.lat<24.3||pt.lat>31.1||pt.lon<-87.7||pt.lon>-79.8){status('That address looks like it is outside Florida. These records only cover Florida.','warn');return}
