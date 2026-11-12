@@ -1209,7 +1209,8 @@ function runAt(pt){
       F.radius=a.radius;F.months=a.months;F.type='same';F.qual='arms';syncFilterUI();touch0=S.touch}
     var wait=[];if(!stateRecs&&!S.stateErr)wait.push('the state tax roll');Object.keys(countyP).forEach(function(k){if(!early[k])wait.push('the '+k+' County appraiser')});
     status('Showing the sales loaded so far. Still loading '+(wait.join(' and ')||'parcel details')+'…');
-    render();sendToCalc();tlog('preview '+S.all.length+' recs');
+    S.busy=false;$('c-go').disabled=false; // a new search can start while the slow sources finish
+    render();sendToCalc();tlog('preview '+S.all.length+' recs · shown '+visible().length+' · ARV '+$('h-arv').value);
   }
   function startCounty(c){if(c&&COUNTY_SOURCES[c]&&!countyP[c])countyP[c]=fetchCounty(c,pt).catch(function(e){return {county:c,err:e}}).then(function(r){early[c]=r;preview();return r})}
   salesP.then(function(r){if(!S.stateErr){stateRecs=r;preview()}});
